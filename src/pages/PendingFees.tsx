@@ -91,7 +91,7 @@ export default function PendingFees() {
       filtered = filtered.filter((s) => selectedClasses.includes(s.classGrade));
     }
     return filtered;
-  }, [students, selectedClass]);
+  }, [students, selectedClasses]);
 
   const pendingData = useMemo(() => {
     const paidStudents = new Map<string, number>();
@@ -158,17 +158,43 @@ export default function PendingFees() {
         </div>
         <div className="space-y-1">
           <label className="text-sm font-medium text-muted-foreground">Class</label>
-          <Select value={selectedClass} onValueChange={setSelectedClass}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Classes</SelectItem>
-              {classOptions.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[200px] justify-between font-normal">
+                {selectedClasses.length === 0
+                  ? "All Classes"
+                  : selectedClasses.length === 1
+                    ? selectedClasses[0]
+                    : `${selectedClasses.length} classes`}
+                <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[200px] p-2" align="start">
+              <div className="space-y-1">
+                <button
+                  className="flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded hover:bg-muted"
+                  onClick={() => setSelectedClasses([])}
+                >
+                  <Checkbox checked={selectedClasses.length === 0} />
+                  All Classes
+                </button>
+                {classOptions.map((c) => (
+                  <button
+                    key={c}
+                    className="flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded hover:bg-muted"
+                    onClick={() => {
+                      setSelectedClasses((prev) =>
+                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+                      );
+                    }}
+                  >
+                    <Checkbox checked={selectedClasses.includes(c)} />
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
