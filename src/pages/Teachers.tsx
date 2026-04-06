@@ -115,6 +115,7 @@ export default function Teachers() {
           </DialogContent>
         </Dialog>
         </div>
+      </div>
 
       <Card>
         <CardHeader>
