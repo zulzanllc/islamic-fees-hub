@@ -26,7 +26,7 @@ export default function PendingFees() {
   const { user } = useAuth();
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
 
   // Payment dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -87,8 +87,8 @@ export default function PendingFees() {
 
   const activeStudents = useMemo(() => {
     let filtered = students.filter((s) => s.status === "active");
-    if (selectedClass !== "all") {
-      filtered = filtered.filter((s) => s.classGrade === selectedClass);
+    if (selectedClasses.length > 0) {
+      filtered = filtered.filter((s) => selectedClasses.includes(s.classGrade));
     }
     return filtered;
   }, [students, selectedClass]);
