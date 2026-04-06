@@ -50,7 +50,17 @@ export function useTeachers() {
     await fetchTeachers();
   }, [fetchTeachers]);
 
-  return { teachers, loading, addTeacher, updateTeacher, deleteTeacher };
+  const bulkAddTeachers = useCallback(async (list: Omit<Teacher, "id">[]) => {
+    const rows = list.map((t) => ({
+      name: t.name, contact: t.contact, cnic: t.cnic,
+      joining_date: t.joiningDate, status: t.status, monthly_salary: t.monthlySalary,
+    }));
+    const { error } = await supabase.from("teachers").insert(rows as any);
+    await fetchTeachers();
+    return error || null;
+  }, [fetchTeachers]);
+
+  return { teachers, loading, addTeacher, updateTeacher, deleteTeacher, bulkAddTeachers };
 }
 
 export function useTeacherLoans() {

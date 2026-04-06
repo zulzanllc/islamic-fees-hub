@@ -8,17 +8,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { Teacher } from "@/types";
 import { formatPKR } from "@/lib/currency";
+import { downloadCSV } from "@/lib/exportCsv";
+import TeacherCsvImport from "@/components/TeacherCsvImport";
 
 const emptyForm: Omit<Teacher, "id"> = { name: "", contact: "", cnic: "", joiningDate: new Date().toISOString().slice(0, 10), status: "active", monthlySalary: 0 };
 
 export default function Teachers() {
   const navigate = useNavigate();
-  const { teachers, loading, addTeacher, updateTeacher, deleteTeacher } = useTeachers();
+  const { teachers, loading, addTeacher, updateTeacher, deleteTeacher, bulkAddTeachers } = useTeachers();
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -57,6 +59,39 @@ export default function Teachers() {
           <h1 className="text-2xl font-bold text-foreground">Teachers</h1>
           <p className="text-sm text-muted-foreground">Manage teaching staff</p>
         </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => {
+            const headers = ["Name", "Contact", "CNIC", "Monthly Salary", "Joining Date", "Status"];
+            const q = searchQuery.toLowerCase();
+            const filtered = teachers.filter((t) =>
+              (filterStatus === "all" || t.status === filterStatus) &&
+              (!q || t.name.toLowerCase().includes(q) || t.contact.toLowerCase().includes(q) || t.cnic.toLowerCase().includes(q))
+            );
+            const rows = filtered.map((t) => [t.name, t.contact, t.cnic, String(t.monthlySalary), t.joiningDate, t.status]);
+            downloadCSV("teachers.csv", headers, rows);
+            toast.success(`Exported ${filtered.length} teachers`);
+          }}>
+            <Download className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <TeacherCsvImport onImport={async (csvTeachers) => {
+            const existingCnics = new Set(teachers.map((t) => t.cnic.trim().toLowerCase()).filter(Boolean));
+            const seenCnics = new Set<string>();
+            const newTeachers = csvTeachers.filter((t) => {
+              const cnic = t.cnic.trim().toLowerCase();
+              if (!cnic) return true;
+              if (existingCnics.has(cnic) || seenCnics.has(cnic)) return false;
+              seenCnics.add(cnic);
+              return true;
+            });
+            if (newTeachers.length === 0) {
+              toast.info("No new teachers to import (all duplicates)");
+              return null;
+            }
+            if (newTeachers.length < csvTeachers.length) {
+              toast.info(`${csvTeachers.length - newTeachers.length} duplicate(s) skipped`);
+            }
+            return bulkAddTeachers(newTeachers);
+          }} />
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setForm(emptyForm); setEditId(null); } }}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Teacher</Button>
@@ -79,6 +114,7 @@ export default function Teachers() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card>

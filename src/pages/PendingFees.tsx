@@ -1,17 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
-import { AlertCircle, CreditCard, Download } from "lucide-react";
+import { AlertCircle, CreditCard, Download, ChevronDown } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -24,7 +26,7 @@ export default function PendingFees() {
   const { user } = useAuth();
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
 
   // Payment dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -85,11 +87,11 @@ export default function PendingFees() {
 
   const activeStudents = useMemo(() => {
     let filtered = students.filter((s) => s.status === "active");
-    if (selectedClass !== "all") {
-      filtered = filtered.filter((s) => s.classGrade === selectedClass);
+    if (selectedClasses.length > 0) {
+      filtered = filtered.filter((s) => selectedClasses.includes(s.classGrade));
     }
     return filtered;
-  }, [students, selectedClass]);
+  }, [students, selectedClasses]);
 
   const pendingData = useMemo(() => {
     const paidStudents = new Map<string, number>();
@@ -156,17 +158,43 @@ export default function PendingFees() {
         </div>
         <div className="space-y-1">
           <label className="text-sm font-medium text-muted-foreground">Class</label>
-          <Select value={selectedClass} onValueChange={setSelectedClass}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Classes</SelectItem>
-              {classOptions.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[200px] justify-between font-normal">
+                {selectedClasses.length === 0
+                  ? "All Classes"
+                  : selectedClasses.length === 1
+                    ? selectedClasses[0]
+                    : `${selectedClasses.length} classes`}
+                <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[200px] p-2" align="start">
+              <div className="space-y-1">
+                <button
+                  className="flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded hover:bg-muted"
+                  onClick={() => setSelectedClasses([])}
+                >
+                  <Checkbox checked={selectedClasses.length === 0} />
+                  All Classes
+                </button>
+                {classOptions.map((c) => (
+                  <button
+                    key={c}
+                    className="flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded hover:bg-muted"
+                    onClick={() => {
+                      setSelectedClasses((prev) =>
+                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+                      );
+                    }}
+                  >
+                    <Checkbox checked={selectedClasses.includes(c)} />
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
