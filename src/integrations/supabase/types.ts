@@ -59,6 +59,30 @@ export type Database = {
         }
         Relationships: []
       }
+      manager_permissions: {
+        Row: {
+          can_access_students: boolean
+          can_access_teachers: boolean
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          can_access_students?: boolean
+          can_access_teachers?: boolean
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          can_access_students?: boolean
+          can_access_teachers?: boolean
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           amount_paid: number
