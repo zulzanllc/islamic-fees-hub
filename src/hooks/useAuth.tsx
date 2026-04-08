@@ -2,11 +2,17 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
+interface ManagerPermissions {
+  canAccessStudents: boolean;
+  canAccessTeachers: boolean;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   isAdmin: boolean;
   userRole: "admin" | "manager" | "user" | null;
+  managerPermissions: ManagerPermissions;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -19,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState<"admin" | "manager" | "user" | null>(null);
+  const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions>({ canAccessStudents: true, canAccessTeachers: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
