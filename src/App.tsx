@@ -28,7 +28,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
-  const { session, isAdmin, userRole, loading } = useAuth();
+  const { session, isAdmin, userRole, managerPermissions, loading } = useAuth();
 
   if (loading) {
     return (
@@ -60,8 +60,8 @@ function ProtectedRoutes() {
         <Route path="/pending-fees" element={<PendingFees />} />
         <Route path="/student-settings" element={<StudentSettings />} />
 
-        {/* Teacher & Admin routes - admin only */}
-        {isAdmin && (
+        {/* Teacher routes - admin or manager with teacher access */}
+        {(isAdmin || (userRole === "manager" && managerPermissions.canAccessTeachers)) && (
           <>
             <Route path="/teachers" element={<Teachers />} />
             <Route path="/teachers/:id" element={<TeacherDetail />} />
@@ -71,8 +71,11 @@ function ProtectedRoutes() {
             <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
             <Route path="/teacher-settings" element={<TeacherSettings />} />
             <Route path="/pending-salaries" element={<PendingSalaries />} />
-            <Route path="/roles" element={<RoleManagement />} />
           </>
+        )}
+        {/* Admin-only routes */}
+        {isAdmin && (
+          <Route path="/roles" element={<RoleManagement />} />
         )}
         <Route path="*" element={<NotFound />} />
       </Routes>
