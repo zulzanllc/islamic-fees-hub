@@ -2,11 +2,17 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
+interface ManagerPermissions {
+  canAccessStudents: boolean;
+  canAccessTeachers: boolean;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   isAdmin: boolean;
   userRole: "admin" | "manager" | "user" | null;
+  managerPermissions: ManagerPermissions;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -19,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState<"admin" | "manager" | "user" | null>(null);
+  const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions>({ canAccessStudents: true, canAccessTeachers: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,17 +33,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const checkUserRole = async (userId: string) => {
       try {
-        const { data } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", userId)
-          .order("role");
+        const [{ data }, { data: permsData }] = await Promise.all([
+          supabase.from("user_roles").select("role").eq("user_id", userId).order("role"),
+          supabase.from("manager_permissions").select("can_access_students, can_access_teachers").eq("user_id", userId).maybeSingle(),
+        ]);
         if (isMounted && data && data.length > 0) {
           const roles = data.map((r: any) => r.role);
           setIsAdmin(roles.includes("admin"));
           if (roles.includes("admin")) setUserRole("admin");
-          else if (roles.includes("manager")) setUserRole("manager");
-          else setUserRole("user");
+          else if (roles.includes("manager")) {
+            setUserRole("manager");
+            if (permsData) {
+              setManagerPermissions({
+                canAccessStudents: permsData.can_access_students,
+                canAccessTeachers: permsData.can_access_teachers,
+              });
+            }
+          } else setUserRole("user");
         } else if (isMounted) {
           setIsAdmin(false);
           setUserRole("user");
@@ -106,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, isAdmin, userRole, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ session, user, isAdmin, userRole, managerPermissions, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
