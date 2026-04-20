@@ -30,6 +30,20 @@ export interface Payment {
   receiptPrinted: boolean;
 }
 
+export interface StudentPaymentSubmission {
+  id: string;
+  feeMonth: string;
+  amountSubmitted: number;
+  totalCollectedAtSubmission: number;
+  previouslySubmittedAmount: number;
+  remainingAfterSubmission: number;
+  submissionDate: string;
+  paymentMode: string;
+  notes: string;
+  submittedBy: string | null;
+  createdAt: string;
+}
+
 export interface Teacher {
   id: string;
   name: string;

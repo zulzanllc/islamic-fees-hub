@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { Student, FeeStructure, Payment } from "@/types";
+import type { Student, FeeStructure, Payment, StudentPaymentSubmission } from "@/types";
 
 export function useStudents() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -207,4 +207,82 @@ export function usePayments() {
   }, [fetchPayments]);
 
   return { payments, loading, addPayment };
+}
+
+export function useStudentPaymentSubmissions() {
+  const [submissions, setSubmissions] = useState<StudentPaymentSubmission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchSubmissions = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("student_payment_submissions")
+      .select("*")
+      .order("submission_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setSubmissions(
+        data.map((submission) => ({
+          id: submission.id,
+          feeMonth: submission.fee_month,
+          amountSubmitted: Number(submission.amount_submitted),
+          totalCollectedAtSubmission: Number(submission.total_collected_at_submission),
+          previouslySubmittedAmount: Number(submission.previously_submitted_amount),
+          remainingAfterSubmission: Number(submission.remaining_after_submission),
+          submissionDate: submission.submission_date,
+          paymentMode: submission.payment_mode,
+          notes: submission.notes,
+          submittedBy: submission.submitted_by,
+          createdAt: submission.created_at,
+        }))
+      );
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchSubmissions(); }, [fetchSubmissions]);
+
+  const addSubmission = useCallback(async (
+    submission: Omit<StudentPaymentSubmission, "id" | "createdAt">
+  ) => {
+    const { error } = await supabase.from("student_payment_submissions").insert({
+      fee_month: submission.feeMonth,
+      amount_submitted: submission.amountSubmitted,
+      total_collected_at_submission: submission.totalCollectedAtSubmission,
+      previously_submitted_amount: submission.previouslySubmittedAmount,
+      remaining_after_submission: submission.remainingAfterSubmission,
+      submission_date: submission.submissionDate,
+      payment_mode: submission.paymentMode,
+      notes: submission.notes,
+      submitted_by: submission.submittedBy,
+    });
+    if (!error) await fetchSubmissions();
+    return error;
+  }, [fetchSubmissions]);
+
+  const updateSubmission = useCallback(async (
+    id: string,
+    submission: Partial<Omit<StudentPaymentSubmission, "id" | "createdAt">>
+  ) => {
+    const updates: Record<string, unknown> = {};
+    if (submission.feeMonth !== undefined) updates.fee_month = submission.feeMonth;
+    if (submission.amountSubmitted !== undefined) updates.amount_submitted = submission.amountSubmitted;
+    if (submission.totalCollectedAtSubmission !== undefined) updates.total_collected_at_submission = submission.totalCollectedAtSubmission;
+    if (submission.previouslySubmittedAmount !== undefined) updates.previously_submitted_amount = submission.previouslySubmittedAmount;
+    if (submission.remainingAfterSubmission !== undefined) updates.remaining_after_submission = submission.remainingAfterSubmission;
+    if (submission.submissionDate !== undefined) updates.submission_date = submission.submissionDate;
+    if (submission.paymentMode !== undefined) updates.payment_mode = submission.paymentMode;
+    if (submission.notes !== undefined) updates.notes = submission.notes;
+    if (submission.submittedBy !== undefined) updates.submitted_by = submission.submittedBy;
+
+    const { error } = await supabase
+      .from("student_payment_submissions")
+      .update(updates)
+      .eq("id", id);
+    if (!error) await fetchSubmissions();
+    return error;
+  }, [fetchSubmissions]);
+
+  return { submissions, loading, addSubmission, updateSubmission, fetchSubmissions };
 }

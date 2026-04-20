@@ -20,6 +20,7 @@ import TeacherDetail from "@/pages/TeacherDetail";
 import RoleManagement from "@/pages/RoleManagement";
 import StudentSettings from "@/pages/StudentSettings";
 import PendingFees from "@/pages/PendingFees";
+import SubmitPayment from "@/pages/SubmitPayment";
 import TeacherSettings from "@/pages/TeacherSettings";
 import PendingSalaries from "@/pages/PendingSalaries";
 import Login from "@/pages/Login";
@@ -71,6 +72,7 @@ function ProtectedRoutes() {
             <Route path="/payments" element={<Payments />} />
             <Route path="/receipts" element={<Receipts />} />
             <Route path="/pending-fees" element={<PendingFees />} />
+            {permissions.canManageRoles && <Route path="/submit-payment" element={<SubmitPayment />} />}
             {permissions.canEditStudents && <Route path="/student-settings" element={<StudentSettings />} />}
           </>
         )}

@@ -328,6 +328,48 @@ export type Database = {
         }
         Relationships: []
       }
+      student_payment_submissions: {
+        Row: {
+          amount_submitted: number
+          created_at: string
+          fee_month: string
+          id: string
+          notes: string
+          payment_mode: string
+          previously_submitted_amount: number
+          remaining_after_submission: number
+          submission_date: string
+          submitted_by: string | null
+          total_collected_at_submission: number
+        }
+        Insert: {
+          amount_submitted?: number
+          created_at?: string
+          fee_month: string
+          id?: string
+          notes?: string
+          payment_mode?: string
+          previously_submitted_amount?: number
+          remaining_after_submission?: number
+          submission_date?: string
+          submitted_by?: string | null
+          total_collected_at_submission?: number
+        }
+        Update: {
+          amount_submitted?: number
+          created_at?: string
+          fee_month?: string
+          id?: string
+          notes?: string
+          payment_mode?: string
+          previously_submitted_amount?: number
+          remaining_after_submission?: number
+          submission_date?: string
+          submitted_by?: string | null
+          total_collected_at_submission?: number
+        }
+        Relationships: []
+      }
       user_permissions: {
         Row: {
           can_edit_students: boolean

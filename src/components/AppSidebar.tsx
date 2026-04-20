@@ -14,6 +14,7 @@ import {
   Shield,
   Settings,
   AlertCircle,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,7 @@ const studentNav = [
   { title: "Fee Structure", url: "/fees", icon: DollarSign },
   { title: "Payments", url: "/payments", icon: CreditCard },
   { title: "Pending Fees", url: "/pending-fees", icon: AlertCircle },
+  { title: "Submit Payment", url: "/submit-payment", icon: Send, adminOnly: true },
   { title: "Receipts", url: "/receipts", icon: Receipt },
   { title: "Settings", url: "/student-settings", icon: Settings },
 ];
@@ -56,7 +58,11 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { signOut, user, permissions } = useAuth();
-  const visibleStudentNav = studentNav.filter((item) => item.url !== "/student-settings" || permissions.canEditStudents);
+  const visibleStudentNav = studentNav.filter((item) => {
+    if (item.url === "/student-settings") return permissions.canEditStudents;
+    if ("adminOnly" in item && item.adminOnly) return permissions.canManageRoles;
+    return true;
+  });
   const visibleTeacherNav = teacherNav.filter((item) => item.url !== "/teacher-settings" || permissions.canEditTeachers);
 
   return (
