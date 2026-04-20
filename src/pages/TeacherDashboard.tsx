@@ -17,6 +17,7 @@ import { Briefcase, Banknote, Clock, AlertCircle, DollarSign, CreditCard } from 
 import { format, subMonths } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { toast } from "sonner";
+import { getProratedMonthlyAmount } from "@/lib/proration";
 
 const salaryChartConfig: ChartConfig = {
   salary: { label: "Salaries", color: "hsl(220 60% 50%)" },
@@ -37,8 +38,13 @@ export default function TeacherDashboard() {
   const teachersPaidThisMonth = new Set(
     salaries.filter((s) => s.month === currentMonth).map((s) => s.teacherId)
   );
-  const pendingTeachers = activeTeachers.filter((t) => !teachersPaidThisMonth.has(t.id));
-  const totalPendingSalary = pendingTeachers.reduce((s, t) => s + t.monthlySalary, 0);
+  const pendingTeachers = activeTeachers.filter(
+    (t) => !teachersPaidThisMonth.has(t.id) && getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth) > 0
+  );
+  const totalPendingSalary = pendingTeachers.reduce(
+    (s, t) => s + getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth),
+    0
+  );
 
   const totalSalaryIssuedThisMonth = salaries
     .filter((s) => s.month === currentMonth)
@@ -193,7 +199,9 @@ export default function TeacherDashboard() {
                       <p className="text-sm font-medium">{t.name}</p>
                       <p className="text-xs text-muted-foreground">Since {t.joiningDate}</p>
                     </div>
-                    <span className="text-sm font-semibold text-destructive">{formatPKR(t.monthlySalary)}</span>
+                    <span className="text-sm font-semibold text-destructive">
+                      {formatPKR(getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth))}
+                    </span>
                   </div>
                 ))}
               </div>

@@ -96,7 +96,7 @@ export default function StudentCsvImport({ onImport }: Props) {
       const guardianIdx = header.findIndex((h) => h.includes("guardian") || h.includes("father") || h.includes("parent"));
       const contactIdx = header.findIndex((h) => h.includes("contact") || h.includes("phone") || h.includes("mobile"));
       const classIdx = header.findIndex((h) => h.includes("class") || h.includes("grade"));
-      const dateIdx = header.findIndex((h) => h.includes("enrollment") || h.includes("date") || h.includes("admission"));
+      const dateIdx = header.findIndex((h) => h.includes("joining") || h.includes("enrollment") || h.includes("date") || h.includes("admission"));
       const statusIdx = header.findIndex((h) => h.includes("status"));
       const codeIdx = header.findIndex((h) => h.includes("code") || h.includes("id") || h.includes("roll"));
 
@@ -190,7 +190,7 @@ export default function StudentCsvImport({ onImport }: Props) {
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <p className="text-sm text-muted-foreground">
-            Upload a CSV file with columns: <strong>Name</strong> (required), <strong>Class/Grade</strong> (required), Guardian Name, Contact, Enrollment Date, Status, Student Code.
+            Upload a CSV file with columns: <strong>Name</strong> (required), <strong>Class/Grade</strong> (required), Guardian Name, Contact, Joining Date, Status, Student Code.
           </p>
           <input
             ref={fileRef}

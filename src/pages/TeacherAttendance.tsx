@@ -10,10 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function TeacherAttendance() {
   const { teachers } = useTeachers();
   const { attendance, loading, addAttendance, updateAttendance } = useTeacherAttendance();
+  const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ teacherId: "", date: format(new Date(), "yyyy-MM-dd"), timeIn: "", timeOut: "", notes: "" });
 
@@ -38,7 +40,9 @@ export default function TeacherAttendance() {
           <p className="text-sm text-muted-foreground">Record daily in/out timings</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Record Attendance</Button></DialogTrigger>
+          {permissions.canEditTeachers && (
+            <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Record Attendance</Button></DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader><DialogTitle>Record Attendance</DialogTitle></DialogHeader>
             <div className="space-y-3">

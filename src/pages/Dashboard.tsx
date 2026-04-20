@@ -8,11 +8,12 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis } from "recharts";
-import { useStudents, usePayments } from "@/store/useStore";
+import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { Users, DollarSign, AlertCircle, TrendingUp, Plus, CreditCard } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { formatPKR } from "@/lib/currency";
+import { getProratedMonthlyAmount } from "@/lib/proration";
 
 const chartConfig: ChartConfig = {
   revenue: { label: "Revenue", color: "hsl(160 45% 32%)" },
@@ -21,13 +22,21 @@ const chartConfig: ChartConfig = {
 export default function Dashboard() {
   const { students } = useStudents();
   const { payments } = usePayments();
+  const { fees } = useFeeStructures();
 
   const activeStudents = students.filter((s) => s.status === "active");
   const currentMonth = format(new Date(), "yyyy-MM");
-  const studentsPaidThisMonth = new Set(
-    payments.filter((p) => p.feeMonth === currentMonth).map((p) => p.studentId)
-  );
-  const pendingStudents = activeStudents.filter((s) => !studentsPaidThisMonth.has(s.id));
+  const studentsPaidThisMonth = new Map<string, number>();
+  payments
+    .filter((p) => p.feeMonth === currentMonth && p.feeType === "tuition")
+    .forEach((p) => {
+      studentsPaidThisMonth.set(p.studentId, (studentsPaidThisMonth.get(p.studentId) ?? 0) + p.amountPaid);
+    });
+  const pendingStudents = activeStudents.filter((student) => {
+    const fee = fees.find((f) => f.classGrade === student.classGrade && f.feeType === "tuition");
+    const expectedFee = getProratedMonthlyAmount(fee?.amount ?? 0, student.enrollmentDate, currentMonth);
+    return expectedFee > (studentsPaidThisMonth.get(student.id) ?? 0);
+  });
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const todayPayments = payments.filter((p) => p.date === todayStr);

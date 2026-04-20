@@ -30,12 +30,14 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const emptyForm = { classGrade: "", feeType: "tuition" as "tuition" | "registration", amount: 0 };
 
 export default function FeeStructurePage() {
   const { fees, addFee, updateFee, deleteFee } = useFeeStructures();
   const { classNames } = useClasses();
+  const { permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -71,11 +73,13 @@ export default function FeeStructurePage() {
             }
           }}
         >
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Add Fee
-            </Button>
-          </DialogTrigger>
+          {permissions.canEditStudents && (
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Add Fee
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
@@ -146,13 +150,13 @@ export default function FeeStructurePage() {
                 <TableHead>Class/Grade</TableHead>
                 <TableHead>Fee Type</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                {permissions.canEditStudents && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {fees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={permissions.canEditStudents ? 4 : 3} className="text-center py-8 text-muted-foreground">
                     No fee structures defined yet.
                   </TableCell>
                 </TableRow>
@@ -166,30 +170,32 @@ export default function FeeStructurePage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatPKR(f.amount)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => {
-                          setEditingId(f.id);
-                          setForm({
-                            classGrade: f.classGrade,
-                            feeType: f.feeType,
-                            amount: f.amount,
-                          });
-                          setDialogOpen(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteFee(f.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
+                    {permissions.canEditStudents && (
+                      <TableCell className="text-right">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingId(f.id);
+                            setForm({
+                              classGrade: f.classGrade,
+                              feeType: f.feeType,
+                              amount: f.amount,
+                            });
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => deleteFee(f.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

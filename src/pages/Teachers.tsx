@@ -13,12 +13,14 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { Teacher } from "@/types";
 import { formatPKR } from "@/lib/currency";
+import { useAuth } from "@/hooks/useAuth";
 
 const emptyForm: Omit<Teacher, "id"> = { name: "", contact: "", cnic: "", joiningDate: new Date().toISOString().slice(0, 10), status: "active", monthlySalary: 0 };
 
 export default function Teachers() {
   const navigate = useNavigate();
   const { teachers, loading, addTeacher, updateTeacher, deleteTeacher } = useTeachers();
+  const { permissions } = useAuth();
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -58,9 +60,11 @@ export default function Teachers() {
           <p className="text-sm text-muted-foreground">Manage teaching staff</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setForm(emptyForm); setEditId(null); } }}>
-          <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Teacher</Button>
-          </DialogTrigger>
+          {permissions.canEditTeachers && (
+            <DialogTrigger asChild>
+              <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Teacher</Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader><DialogTitle>{editId ? "Edit" : "Add"} Teacher</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -109,7 +113,7 @@ export default function Teachers() {
             return filtered.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No teachers found.</p> : (
               <Table>
                 <TableHeader><TableRow>
-                  <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Joining Date</TableHead><TableHead>Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
                   {filtered.map((t) => (
@@ -117,12 +121,17 @@ export default function Teachers() {
                       <TableCell className="font-medium">{t.name}</TableCell>
                       <TableCell>{t.contact}</TableCell>
                       <TableCell>{t.cnic}</TableCell>
+                      <TableCell>{t.joiningDate}</TableCell>
                       <TableCell>{formatPKR(t.monthlySalary)}</TableCell>
                       <TableCell><Badge variant={t.status === "active" ? "default" : "secondary"}>{t.status}</Badge></TableCell>
                       <TableCell className="text-right space-x-1">
                         <Button size="icon" variant="ghost" onClick={() => navigate(`/teachers/${t.id}`)}><Eye className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" onClick={() => startEdit(t)}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" onClick={() => handleDelete(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        {permissions.canEditTeachers && (
+                          <>
+                            <Button size="icon" variant="ghost" onClick={() => startEdit(t)}><Pencil className="h-4 w-4" /></Button>
+                            <Button size="icon" variant="ghost" onClick={() => handleDelete(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                          </>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

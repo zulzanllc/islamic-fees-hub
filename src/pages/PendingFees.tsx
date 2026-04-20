@@ -16,12 +16,13 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Student } from "@/types";
+import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 
 export default function PendingFees() {
   const { students } = useStudents();
   const { payments, addPayment } = usePayments();
   const { fees } = useFeeStructures();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedClass, setSelectedClass] = useState("all");
@@ -103,13 +104,24 @@ export default function PendingFees() {
       const feeStructure = fees.find(
         (f) => f.classGrade === student.classGrade && f.feeType === "tuition"
       );
-      const expectedFee = feeStructure?.amount ?? 0;
+      const expectedFee = getProratedMonthlyAmount(
+        feeStructure?.amount ?? 0,
+        student.enrollmentDate,
+        selectedMonth
+      );
       const paidAmount = paidStudents.get(student.id) ?? 0;
       const pendingAmount = Math.max(0, expectedFee - paidAmount);
       const status: "paid" | "partial" | "unpaid" =
         paidAmount >= expectedFee ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
 
-      return { student, expectedFee, paidAmount, pendingAmount, status };
+      return {
+        student,
+        expectedFee,
+        paidAmount,
+        pendingAmount,
+        status,
+        prorated: isJoiningMonth(student.enrollmentDate, selectedMonth),
+      };
     }).filter((d) => d.status !== "paid");
   }, [activeStudents, payments, fees, selectedMonth]);
 
@@ -127,10 +139,10 @@ export default function PendingFees() {
             const monthLabel = monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
             downloadCSV(
               `pending-fees-${selectedMonth}.csv`,
-              ["Student", "Code", "Class", "Guardian", "Contact", "Expected", "Paid", "Pending", "Status"],
+              ["Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Expected", "Paid", "Pending", "Status"],
               pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }) => [
                 student.name, student.studentCode, student.classGrade, student.guardianName, student.contact,
-                String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
+                student.enrollmentDate, String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
               ])
             );
             toast.success(`Exported ${pendingData.length} records for ${monthLabel}`);
@@ -208,15 +220,16 @@ export default function PendingFees() {
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Class</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Guardian</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Contact</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Joining Date</th>
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Expected</th>
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
                     <th className="text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
-                    <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>
+                    {permissions.canEditStudents && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }) => (
+                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated }) => (
                     <tr key={student.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-2">
                         <Link to={`/students/${student.id}`} className="font-medium text-primary hover:underline">
@@ -227,7 +240,11 @@ export default function PendingFees() {
                       <td className="py-3 px-2">{student.classGrade}</td>
                       <td className="py-3 px-2">{student.guardianName}</td>
                       <td className="py-3 px-2">{student.contact}</td>
-                      <td className="py-3 px-2 text-right">{formatPKR(expectedFee)}</td>
+                      <td className="py-3 px-2">{student.enrollmentDate}</td>
+                      <td className="py-3 px-2 text-right">
+                        {formatPKR(expectedFee)}
+                        {prorated && <p className="text-xs text-muted-foreground">Prorated</p>}
+                      </td>
                       <td className="py-3 px-2 text-right">{formatPKR(paidAmount)}</td>
                       <td className="py-3 px-2 text-right font-semibold text-destructive">{formatPKR(pendingAmount)}</td>
                       <td className="py-3 px-2 text-center">
@@ -235,11 +252,13 @@ export default function PendingFees() {
                           {status === "partial" ? "Partial" : "Unpaid"}
                         </Badge>
                       </td>
-                      <td className="py-3 px-2 text-center">
-                        <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, pendingAmount)}>
-                          <CreditCard className="h-3 w-3 mr-1" /> Collect
-                        </Button>
-                      </td>
+                      {permissions.canEditStudents && (
+                        <td className="py-3 px-2 text-center">
+                          <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, pendingAmount)}>
+                            <CreditCard className="h-3 w-3 mr-1" /> Collect
+                          </Button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

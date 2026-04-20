@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
     // 1. Students
     const { data: students } = await supabase.from("students").select("*").order("created_at");
     await clearAndWriteSheet(accessToken, sheetId, "Students", 
-      ["ID", "Student Code", "Name", "Guardian", "Contact", "Class", "Enrollment Date", "Status"],
+      ["ID", "Student Code", "Name", "Guardian", "Contact", "Class", "Joining Date", "Status"],
       (students || []).map((s: any) => [s.id, s.student_code, s.name, s.guardian_name, s.contact, s.class_grade, s.enrollment_date, s.status])
     );
 

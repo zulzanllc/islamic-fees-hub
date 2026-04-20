@@ -55,7 +55,9 @@ const adminNav = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const { signOut, user, isAdmin } = useAuth();
+  const { signOut, user, permissions } = useAuth();
+  const visibleStudentNav = studentNav.filter((item) => item.url !== "/student-settings" || permissions.canEditStudents);
+  const visibleTeacherNav = teacherNav.filter((item) => item.url !== "/teacher-settings" || permissions.canEditTeachers);
 
   return (
     <Sidebar collapsible="icon">
@@ -75,30 +77,32 @@ export function AppSidebar() {
         )}
       </div>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Students</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {studentNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink to={item.url} end={item.url === "/"} className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
-                      <item.icon className="h-4 w-4" /><span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {permissions.canViewStudents && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Students</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleStudentNav.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild tooltip={item.title}>
+                      <NavLink to={item.url} end={item.url === "/"} className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
+                        <item.icon className="h-4 w-4" /><span>{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        {isAdmin && (
+        {permissions.canViewTeachers && (
           <>
             <SidebarGroup>
               <SidebarGroupLabel>Teachers</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {teacherNav.map((item) => (
+                  {visibleTeacherNav.map((item) => (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild tooltip={item.title}>
                         <NavLink to={item.url} className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
@@ -110,6 +114,11 @@ export function AppSidebar() {
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
+          </>
+        )}
+
+        {permissions.canManageRoles && (
+          <>
             <SidebarGroup>
               <SidebarGroupLabel>Admin</SidebarGroupLabel>
               <SidebarGroupContent>

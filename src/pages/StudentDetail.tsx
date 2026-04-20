@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
@@ -34,6 +34,7 @@ import {
 import { ArrowLeft, User, CreditCard, AlertTriangle, Plus } from "lucide-react";
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 
 export default function StudentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -41,7 +42,7 @@ export default function StudentDetail() {
   const { students } = useStudents();
   const { payments, addPayment } = usePayments();
   const { fees } = useFeeStructures();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
 
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [filterFeeType, setFilterFeeType] = useState<string>("all");
@@ -99,9 +100,25 @@ export default function StudentDetail() {
   const registrationFee = fees.find(
     (f) => f.classGrade === student?.classGrade && f.feeType === "registration"
   );
+  const selectedFee = payForm.feeType === "tuition" ? tuitionFee : registrationFee;
+  const suggestedAmount =
+    student && selectedFee
+      ? payForm.feeType === "tuition"
+        ? getProratedMonthlyAmount(selectedFee.amount, student.enrollmentDate, payForm.feeMonth)
+        : selectedFee.amount
+      : 0;
+  const suggestedAmountIsProrated =
+    Boolean(student) &&
+    payForm.feeType === "tuition" &&
+    isJoiningMonth(student?.enrollmentDate ?? "", payForm.feeMonth);
+
+  useEffect(() => {
+    if (!payDialogOpen || suggestedAmount <= 0) return;
+    setPayForm((current) => ({ ...current, amountPaid: String(suggestedAmount) }));
+  }, [payDialogOpen, payForm.feeType, payForm.feeMonth, suggestedAmount]);
 
   // Calculate pending months — from enrollment to now
-  const pendingMonths: { month: string; due: number; paid: number; balance: number }[] = [];
+  const pendingMonths: { month: string; due: number; paid: number; balance: number; prorated: boolean }[] = [];
   if (student && tuitionFee) {
     const enrollDate = parseISO(student.enrollmentDate);
     const now = new Date();
@@ -114,12 +131,14 @@ export default function StudentDetail() {
       const paidForMonth = studentPayments
         .filter((p) => p.feeMonth === monthKey && p.feeType === "tuition")
         .reduce((sum, p) => sum + p.amountPaid, 0);
-      const balance = tuitionFee.amount - paidForMonth;
+      const due = getProratedMonthlyAmount(tuitionFee.amount, student.enrollmentDate, monthKey);
+      const balance = due - paidForMonth;
       pendingMonths.push({
         month: monthKey,
-        due: tuitionFee.amount,
+        due,
         paid: paidForMonth,
         balance,
+        prorated: isJoiningMonth(student.enrollmentDate, monthKey),
       });
     }
   }
@@ -156,11 +175,13 @@ export default function StudentDetail() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Dialog open={payDialogOpen} onOpenChange={(open) => { setPayDialogOpen(open); if (!open) resetPayForm(); }}>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-1" /> Record Payment
-              </Button>
-            </DialogTrigger>
+            {permissions.canEditStudents && (
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-1" /> Record Payment
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Record Payment for {student.name}</DialogTitle>
@@ -183,6 +204,12 @@ export default function StudentDetail() {
                 <div>
                   <Label>Amount (PKR) *</Label>
                   <Input type="number" min={0} value={payForm.amountPaid} onChange={(e) => setPayForm({ ...payForm, amountPaid: e.target.value })} placeholder="0" />
+                  {student && selectedFee && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Suggested {payForm.feeType === "tuition" ? "tuition" : "fee"}: {formatPKR(suggestedAmount)}
+                      {suggestedAmountIsProrated ? " (prorated from joining date)" : ""}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label>Payment Mode</Label>
@@ -228,7 +255,7 @@ export default function StudentDetail() {
               <p className="font-medium">{student.contact || "—"}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Enrollment Date</p>
+              <p className="text-muted-foreground">Joining Date</p>
               <p className="font-medium">{student.enrollmentDate}</p>
             </div>
             <div>
@@ -303,7 +330,10 @@ export default function StudentDetail() {
                     unpaidMonths.map((m) => (
                       <TableRow key={m.month}>
                         <TableCell className="font-medium">{m.month}</TableCell>
-                        <TableCell>{formatPKR(m.due)}</TableCell>
+                        <TableCell>
+                          {formatPKR(m.due)}
+                          {m.prorated && <p className="text-xs text-muted-foreground">Prorated</p>}
+                        </TableCell>
                         <TableCell>{formatPKR(m.paid)}</TableCell>
                         <TableCell className="font-semibold text-destructive">
                           {formatPKR(m.balance)}

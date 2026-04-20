@@ -13,11 +13,14 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { supabase } from "@/integrations/supabase/client";
+import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function TeacherSalaries() {
   const { teachers } = useTeachers();
   const { salaries, loading, addSalary } = useTeacherSalaries();
   const { loans, updateLoan } = useTeacherLoans();
+  const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [filterTeacher, setFilterTeacher] = useState("all");
@@ -36,7 +39,11 @@ export default function TeacherSalaries() {
   const selectedTeacher = teachers.find((t) => t.id === form.teacherId);
   const activeLoans = loans.filter((l) => l.teacherId === form.teacherId && l.status === "active");
   const totalLoanRemaining = activeLoans.reduce((s, l) => s + l.remaining, 0);
-  const baseSalary = selectedTeacher?.monthlySalary ?? 0;
+  const baseSalary = selectedTeacher
+    ? getProratedMonthlyAmount(selectedTeacher.monthlySalary, selectedTeacher.joiningDate, form.month)
+    : 0;
+  const isBaseSalaryProrated =
+    Boolean(selectedTeacher) && isJoiningMonth(selectedTeacher?.joiningDate ?? "", form.month);
 
   // Calculate loan deduction based on each loan's repayment configuration
   const loanDeduction = activeLoans.reduce((total, loan) => {
@@ -57,7 +64,16 @@ export default function TeacherSalaries() {
 
   const currentMonth = format(new Date(), "yyyy-MM");
   const paidTeacherIds = new Set(salaries.filter((s) => s.month === currentMonth).map((s) => s.teacherId));
-  const pendingTeachers = teachers.filter((t) => t.status === "active" && !paidTeacherIds.has(t.id));
+  const pendingTeachers = teachers.filter(
+    (t) =>
+      t.status === "active" &&
+      !paidTeacherIds.has(t.id) &&
+      getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth) > 0
+  );
+  const pendingTeacherTotal = pendingTeachers.reduce(
+    (sum, teacher) => sum + getProratedMonthlyAmount(teacher.monthlySalary, teacher.joiningDate, currentMonth),
+    0
+  );
 
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -176,7 +192,9 @@ export default function TeacherSalaries() {
           <p className="text-sm text-muted-foreground">Record and track salary payments</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Pay Salary</Button></DialogTrigger>
+          {permissions.canEditTeachers && (
+            <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Pay Salary</Button></DialogTrigger>
+          )}
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Pay Salary</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -216,7 +234,10 @@ export default function TeacherSalaries() {
 
               {selectedTeacher && (
                 <div className="bg-muted p-3 rounded-md text-sm space-y-2">
-                  <p>Base Salary: <strong>{formatPKR(baseSalary)}</strong></p>
+                  <p>
+                    Base Salary: <strong>{formatPKR(baseSalary)}</strong>
+                    {isBaseSalaryProrated && <span className="text-xs text-muted-foreground"> (prorated from joining date)</span>}
+                  </p>
                   <p>Loan Deduction: <strong className="text-destructive">-{formatPKR(loanDeduction)}</strong></p>
                   {activeLoans.length > 0 && (
                     <div className="space-y-1 border-t border-border pt-2 mt-1">
@@ -276,12 +297,14 @@ export default function TeacherSalaries() {
               {pendingTeachers.map((t) => (
                 <div key={t.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
                   <span className="text-sm font-medium">{t.name}</span>
-                  <span className="text-sm font-semibold text-destructive">{formatPKR(t.monthlySalary)}</span>
+                  <span className="text-sm font-semibold text-destructive">
+                    {formatPKR(getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth))}
+                  </span>
                 </div>
               ))}
             </div>
             <p className="text-sm text-muted-foreground mt-3">
-              Total pending: <strong className="text-destructive">{formatPKR(pendingTeachers.reduce((s, t) => s + t.monthlySalary, 0))}</strong>
+              Total pending: <strong className="text-destructive">{formatPKR(pendingTeacherTotal)}</strong>
             </p>
           </CardContent>
         </Card>

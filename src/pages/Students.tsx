@@ -34,6 +34,7 @@ import { useNavigate } from "react-router-dom";
 import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import StudentCsvImport from "@/components/StudentCsvImport";
+import { useAuth } from "@/hooks/useAuth";
 
 type StudentForm = {
   name: string;
@@ -61,6 +62,7 @@ export default function Students() {
   const { students, addStudent, bulkAddStudents, updateStudent, deleteStudent } = useStudents();
   const { fees, addFee } = useFeeStructures();
   const { classNames } = useClasses();
+  const { permissions } = useAuth();
   const [search, setSearch] = useState("");
   const [filterClass, setFilterClass] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -142,30 +144,32 @@ export default function Students() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["Code", "Name", "Guardian", "Class", "Contact", "Enrollment Date", "Status"];
+              const headers = ["Code", "Name", "Guardian", "Class", "Contact", "Joining Date", "Status"];
               const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, s.contact, s.enrollmentDate, s.status]);
               downloadCSV("students.csv", headers, rows);
             }}
           >
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
-          <StudentCsvImport onImport={bulkAddStudents} />
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) {
-              setEditingId(null);
-              setForm(emptyForm);
-            }
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Add Student
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
+          {permissions.canEditStudents && <StudentCsvImport onImport={bulkAddStudents} />}
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) {
+                setEditingId(null);
+                setForm(emptyForm);
+              }
+            }}
+          >
+            {permissions.canEditStudents && (
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-1" /> Add Student
+                </Button>
+              </DialogTrigger>
+            )}
+            <DialogContent>
             <DialogHeader>
               <DialogTitle>
                 {editingId ? "Edit Student" : "Add Student"}
@@ -227,7 +231,7 @@ export default function Students() {
                 </Select>
               </div>
               <div>
-                <Label>Enrollment Date</Label>
+                <Label>Joining Date</Label>
                 <Input
                   type="date"
                   value={form.enrollmentDate}
@@ -266,7 +270,7 @@ export default function Students() {
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
         </div>
       </div>
 
@@ -305,6 +309,7 @@ export default function Students() {
                 <TableHead>Guardian</TableHead>
                 <TableHead>Class</TableHead>
                 <TableHead>Contact</TableHead>
+                <TableHead>Joining Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -324,6 +329,7 @@ export default function Students() {
                     <TableCell>{s.guardianName}</TableCell>
                     <TableCell>{s.classGrade}</TableCell>
                     <TableCell>{s.contact}</TableCell>
+                    <TableCell>{s.enrollmentDate}</TableCell>
                     <TableCell>
                       <Badge
                         variant={s.status === "active" ? "default" : "secondary"}
@@ -340,20 +346,24 @@ export default function Students() {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleEdit(s)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDelete(s.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {permissions.canEditStudents && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleEdit(s)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDelete(s.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

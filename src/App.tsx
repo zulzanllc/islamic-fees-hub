@@ -28,7 +28,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
-  const { session, isAdmin, userRole, loading } = useAuth();
+  const { session, userRole, permissions, loading } = useAuth();
 
   if (loading) {
     return (
@@ -50,18 +50,32 @@ function ProtectedRoutes() {
   return (
     <AppLayout>
       <Routes>
-        {/* Student routes - accessible by all roles */}
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/students" element={<Students />} />
-        <Route path="/students/:id" element={<StudentDetail />} />
-        <Route path="/fees" element={<FeeStructure />} />
-        <Route path="/payments" element={<Payments />} />
-        <Route path="/receipts" element={<Receipts />} />
-        <Route path="/pending-fees" element={<PendingFees />} />
-        <Route path="/student-settings" element={<StudentSettings />} />
+        <Route
+          path="/"
+          element={
+            permissions.canViewStudents ? (
+              <Dashboard />
+            ) : permissions.canViewTeachers ? (
+              <Navigate to="/teacher-dashboard" replace />
+            ) : (
+              <NotFound />
+            )
+          }
+        />
 
-        {/* Teacher & Admin routes - admin only */}
-        {isAdmin && (
+        {permissions.canViewStudents && (
+          <>
+            <Route path="/students" element={<Students />} />
+            <Route path="/students/:id" element={<StudentDetail />} />
+            <Route path="/fees" element={<FeeStructure />} />
+            <Route path="/payments" element={<Payments />} />
+            <Route path="/receipts" element={<Receipts />} />
+            <Route path="/pending-fees" element={<PendingFees />} />
+            {permissions.canEditStudents && <Route path="/student-settings" element={<StudentSettings />} />}
+          </>
+        )}
+
+        {permissions.canViewTeachers && (
           <>
             <Route path="/teachers" element={<Teachers />} />
             <Route path="/teachers/:id" element={<TeacherDetail />} />
@@ -69,11 +83,12 @@ function ProtectedRoutes() {
             <Route path="/teacher-loans" element={<TeacherLoans />} />
             <Route path="/teacher-attendance" element={<TeacherAttendance />} />
             <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
-            <Route path="/teacher-settings" element={<TeacherSettings />} />
+            {permissions.canEditTeachers && <Route path="/teacher-settings" element={<TeacherSettings />} />}
             <Route path="/pending-salaries" element={<PendingSalaries />} />
-            <Route path="/roles" element={<RoleManagement />} />
           </>
         )}
+
+        {permissions.canManageRoles && <Route path="/roles" element={<RoleManagement />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppLayout>

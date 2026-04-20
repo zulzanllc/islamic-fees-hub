@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTeachers, useTeacherLoans } from "@/store/useTeacherStore";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,18 +9,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
+import { useAuth } from "@/hooks/useAuth";
 
 type RepaymentType = "specific_month" | "percentage" | "custom_amount" | "manual";
 
 export default function TeacherLoans() {
   const { teachers } = useTeachers();
   const { loans, loading, addLoan, updateLoan, fetchLoans } = useTeacherLoans();
+  const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [form, setForm] = useState({
     teacherId: "",
     amount: 0,
@@ -67,6 +70,16 @@ export default function TeacherLoans() {
   };
 
   const getTeacherName = (id: string) => teachers.find((t) => t.id === id)?.name ?? "Unknown";
+
+  const filteredLoans = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return loans;
+
+    return loans.filter((loan) => {
+      const teacherName = teachers.find((t) => t.id === loan.teacherId)?.name ?? "Unknown";
+      return teacherName.toLowerCase().includes(query);
+    });
+  }, [loans, searchQuery, teachers]);
 
   const getRepaymentLabel = (loan: typeof loans[0]) => {
     switch (loan.repaymentType) {
@@ -118,7 +131,9 @@ export default function TeacherLoans() {
           <p className="text-sm text-muted-foreground">Track advances and loans given to teachers</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Loan</Button></DialogTrigger>
+          {permissions.canEditTeachers && (
+            <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Loan</Button></DialogTrigger>
+          )}
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Record Loan</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -176,15 +191,28 @@ export default function TeacherLoans() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg">All Loans</CardTitle></CardHeader>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-lg">All Loans</CardTitle>
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by teacher name"
+                className="pl-9"
+              />
+            </div>
+          </div>
+        </CardHeader>
         <CardContent>
-          {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : loans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans recorded.</p> : (
+          {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : loans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans recorded.</p> : filteredLoans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans match that teacher name.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead><TableHead>Actions</TableHead>
+                <TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {loans.map((l) => (
+                {filteredLoans.map((l) => (
                   <TableRow key={l.id}>
                     <TableCell className="font-medium">{getTeacherName(l.teacherId)}</TableCell>
                     <TableCell>{formatPKR(l.amount)}</TableCell>
@@ -194,27 +222,29 @@ export default function TeacherLoans() {
                      <TableCell>{l.dateIssued}</TableCell>
                     <TableCell><Badge variant={l.status === "active" ? "destructive" : "default"}>{l.status}</Badge></TableCell>
                     <TableCell className="text-muted-foreground">{l.notes}</TableCell>
-                    <TableCell>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Loan</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete this loan record for {getTeacherName(l.teacherId)} ({formatPKR(l.amount)}). This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteLoan(l.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
+                    {permissions.canEditTeachers && (
+                      <TableCell>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Loan</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete this loan record for {getTeacherName(l.teacherId)} ({formatPKR(l.amount)}). This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteLoan(l.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

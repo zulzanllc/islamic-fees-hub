@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,12 +34,13 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
+import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 
 export default function Payments() {
   const { students } = useStudents();
   const { payments, addPayment } = usePayments();
   const { fees } = useFeeStructures();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filterFeeType, setFilterFeeType] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
@@ -56,6 +57,26 @@ export default function Payments() {
     paymentMode: "cash",
     notes: "",
   });
+
+  const selectedStudent = students.find((s) => s.id === form.studentId);
+  const selectedFee = selectedStudent
+    ? fees.find((f) => f.classGrade === selectedStudent.classGrade && f.feeType === form.feeType)
+    : undefined;
+  const expectedAmount =
+    selectedStudent && selectedFee
+      ? form.feeType === "tuition"
+        ? getProratedMonthlyAmount(selectedFee.amount, selectedStudent.enrollmentDate, form.feeMonth)
+        : selectedFee.amount
+      : 0;
+  const isProrated =
+    Boolean(selectedStudent) &&
+    form.feeType === "tuition" &&
+    isJoiningMonth(selectedStudent?.enrollmentDate ?? "", form.feeMonth);
+
+  useEffect(() => {
+    if (!form.studentId || expectedAmount <= 0) return;
+    setForm((current) => ({ ...current, amountPaid: expectedAmount }));
+  }, [form.studentId, form.feeType, form.feeMonth, expectedAmount]);
 
   const handleSubmit = () => {
     if (!form.studentId || form.amountPaid <= 0) return;
@@ -191,11 +212,13 @@ export default function Payments() {
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Record Payment
-            </Button>
-          </DialogTrigger>
+          {permissions.canEditStudents && (
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Record Payment
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Record Payment</DialogTitle>
@@ -251,6 +274,12 @@ export default function Payments() {
                     })
                   }
                 />
+                {selectedStudent && selectedFee && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Suggested {form.feeType === "tuition" ? "tuition" : "fee"}: {formatPKR(expectedAmount)}
+                    {isProrated ? " (prorated from joining date)" : ""}
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Fee Month *</Label>
