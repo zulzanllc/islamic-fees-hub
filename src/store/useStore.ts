@@ -206,7 +206,24 @@ export function usePayments() {
     return null;
   }, [fetchPayments]);
 
-  return { payments, loading, addPayment };
+  const updatePayment = useCallback(async (id: string, updates: Partial<Payment>) => {
+    const mapped: Record<string, unknown> = {};
+    if (updates.studentId !== undefined) mapped.student_id = updates.studentId;
+    if (updates.feeType !== undefined) mapped.fee_type = updates.feeType;
+    if (updates.amountPaid !== undefined) mapped.amount_paid = updates.amountPaid;
+    if (updates.date !== undefined) mapped.date = updates.date;
+    if (updates.feeMonth !== undefined) mapped.fee_month = updates.feeMonth;
+    if (updates.notes !== undefined) mapped.notes = updates.notes;
+    if (updates.collectedBy !== undefined) mapped.collected_by = updates.collectedBy;
+    if (updates.paymentMode !== undefined) mapped.payment_mode = updates.paymentMode;
+    if (updates.receiptPrinted !== undefined) mapped.receipt_printed = updates.receiptPrinted;
+
+    const { error } = await supabase.from("payments").update(mapped).eq("id", id);
+    if (!error) await fetchPayments();
+    return error;
+  }, [fetchPayments]);
+
+  return { payments, loading, addPayment, updatePayment };
 }
 
 export function useStudentPaymentSubmissions() {

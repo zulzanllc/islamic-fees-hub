@@ -73,7 +73,7 @@ export default function FeeStructurePage() {
             }
           }}
         >
-          {permissions.canEditStudents && (
+          {permissions.canEditFees && (
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1" /> Add Fee
@@ -150,13 +150,13 @@ export default function FeeStructurePage() {
                 <TableHead>Class/Grade</TableHead>
                 <TableHead>Fee Type</TableHead>
                 <TableHead>Amount</TableHead>
-                {permissions.canEditStudents && <TableHead className="text-right">Actions</TableHead>}
+                {permissions.canEditFees && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {fees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={permissions.canEditStudents ? 4 : 3} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={permissions.canEditFees ? 4 : 3} className="text-center py-8 text-muted-foreground">
                     No fee structures defined yet.
                   </TableCell>
                 </TableRow>
@@ -170,7 +170,7 @@ export default function FeeStructurePage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatPKR(f.amount)}</TableCell>
-                    {permissions.canEditStudents && (
+                    {permissions.canEditFees && (
                       <TableCell className="text-right">
                         <Button
                           size="icon"

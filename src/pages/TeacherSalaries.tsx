@@ -192,7 +192,7 @@ export default function TeacherSalaries() {
           <p className="text-sm text-muted-foreground">Record and track salary payments</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          {permissions.canEditTeachers && (
+          {permissions.canPaySalaries && (
             <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Pay Salary</Button></DialogTrigger>
           )}
           <DialogContent className="max-h-[90vh] overflow-y-auto">

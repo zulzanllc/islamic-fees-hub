@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Download, FileText, Search } from "lucide-react";
+import { Plus, Download, FileText, Search, Pencil } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
@@ -38,14 +38,16 @@ import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 
 export default function Payments() {
   const { students } = useStudents();
-  const { payments, addPayment } = usePayments();
+  const { payments, addPayment, updatePayment } = usePayments();
   const { fees } = useFeeStructures();
   const { user, permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [filterFeeType, setFilterFeeType] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterMode, setFilterMode] = useState("all");
   const [searchReceipt, setSearchReceipt] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
 
   const currentMonth = format(new Date(), "yyyy-MM");
   const [form, setForm] = useState({
@@ -74,16 +76,11 @@ export default function Payments() {
     isJoiningMonth(selectedStudent?.enrollmentDate ?? "", form.feeMonth);
 
   useEffect(() => {
-    if (!form.studentId || expectedAmount <= 0) return;
+    if (editingPaymentId || !form.studentId || expectedAmount <= 0) return;
     setForm((current) => ({ ...current, amountPaid: expectedAmount }));
-  }, [form.studentId, form.feeType, form.feeMonth, expectedAmount]);
+  }, [editingPaymentId, form.studentId, form.feeType, form.feeMonth, expectedAmount]);
 
-  const handleSubmit = () => {
-    if (!form.studentId || form.amountPaid <= 0) return;
-    addPayment({
-      ...form,
-      collectedBy: user?.id ?? null,
-    });
+  const resetForm = () => {
     setForm({
       studentId: "",
       feeType: "tuition",
@@ -93,12 +90,59 @@ export default function Payments() {
       paymentMode: "cash",
       notes: "",
     });
+    setEditingPaymentId(null);
+    setStudentSearch("");
+  };
+
+  const handleSubmit = async () => {
+    if (!form.studentId || form.amountPaid <= 0) return;
+    if (editingPaymentId) {
+      await updatePayment(editingPaymentId, {
+        ...form,
+        collectedBy: user?.id ?? null,
+      });
+    } else {
+      await addPayment({
+        ...form,
+        collectedBy: user?.id ?? null,
+      });
+    }
+    resetForm();
     setDialogOpen(false);
+  };
+
+  const startEditPayment = (paymentId: string) => {
+    const payment = payments.find((p) => p.id === paymentId);
+    if (!payment) return;
+    setEditingPaymentId(payment.id);
+    setForm({
+      studentId: payment.studentId,
+      feeType: payment.feeType,
+      amountPaid: payment.amountPaid,
+      date: payment.date,
+      feeMonth: payment.feeMonth,
+      paymentMode: payment.paymentMode,
+      notes: payment.notes,
+    });
+    setStudentSearch(getStudentName(payment.studentId));
+    setDialogOpen(true);
   };
 
   const getStudentName = (id: string) =>
     students.find((s) => s.id === id)?.name ?? "Unknown";
   const getStudent = (id: string) => students.find((s) => s.id === id);
+  const filteredStudentsForSelect = students
+    .filter((student) => student.status === "active" || student.id === form.studentId)
+    .filter((student) => {
+      const query = studentSearch.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        student.name.toLowerCase().includes(query) ||
+        student.classGrade.toLowerCase().includes(query) ||
+        student.studentCode.toLowerCase().includes(query) ||
+        student.guardianName.toLowerCase().includes(query)
+      );
+    });
 
   const generateFeeSlip = (paymentId: string) => {
     const payment = payments.find((p) => p.id === paymentId);
@@ -211,8 +255,8 @@ export default function Payments() {
           >
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          {permissions.canEditStudents && (
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+          {permissions.canCollectFees && (
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1" /> Record Payment
@@ -221,26 +265,40 @@ export default function Payments() {
           )}
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
+              <DialogTitle>{editingPaymentId ? "Edit Payment" : "Record Payment"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div>
                 <Label>Student *</Label>
+                <div className="relative mb-2">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search student by name, code, class or guardian"
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    className="pl-8"
+                  />
+                </div>
                 <Select
                   value={form.studentId}
-                  onValueChange={(v) => setForm({ ...form, studentId: v })}
+                  onValueChange={(v) => {
+                    setForm({ ...form, studentId: v });
+                    setStudentSearch(getStudentName(v));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select student" />
                   </SelectTrigger>
                   <SelectContent>
-                    {students
-                      .filter((s) => s.status === "active")
-                      .map((s) => (
+                    {filteredStudentsForSelect.length === 0 ? (
+                      <div className="px-2 py-3 text-sm text-muted-foreground">No students found.</div>
+                    ) : (
+                      filteredStudentsForSelect.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
-                          {s.name} ({s.classGrade})
+                          {s.name} ({s.classGrade}){s.studentCode ? ` - ${s.studentCode}` : ""}
                         </SelectItem>
-                      ))}
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -323,7 +381,7 @@ export default function Payments() {
                 />
               </div>
               <Button onClick={handleSubmit} className="w-full">
-                Record Payment
+                {editingPaymentId ? "Update Payment" : "Record Payment"}
               </Button>
             </div>
           </DialogContent>
@@ -403,7 +461,7 @@ export default function Payments() {
                 <TableHead>Amount</TableHead>
                 <TableHead>Receipt #</TableHead>
                 <TableHead>Collected By</TableHead>
-                <TableHead className="text-right">Slip</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -442,6 +500,16 @@ export default function Payments() {
                       {p.collectedBy ? user?.email ?? "Admin" : "—"}
                     </TableCell>
                     <TableCell className="text-right">
+                      {permissions.canManageRoles && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => startEditPayment(p.id)}
+                          title="Edit Payment"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"

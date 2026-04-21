@@ -30,6 +30,11 @@ const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
   const { session, userRole, permissions, loading } = useAuth();
+  const teachersOnlyAccess =
+    permissions.canViewTeachers &&
+    permissions.canPaySalaries &&
+    !permissions.canViewStudents &&
+    !permissions.canManageRoles;
 
   if (loading) {
     return (
@@ -57,7 +62,7 @@ function ProtectedRoutes() {
             permissions.canViewStudents ? (
               <Dashboard />
             ) : permissions.canViewTeachers ? (
-              <Navigate to="/teacher-dashboard" replace />
+              <Navigate to={teachersOnlyAccess ? "/pending-salaries" : "/teacher-dashboard"} replace />
             ) : (
               <NotFound />
             )
@@ -66,12 +71,12 @@ function ProtectedRoutes() {
 
         {permissions.canViewStudents && (
           <>
+            <Route path="/pending-fees" element={<PendingFees />} />
             <Route path="/students" element={<Students />} />
             <Route path="/students/:id" element={<StudentDetail />} />
             <Route path="/fees" element={<FeeStructure />} />
             <Route path="/payments" element={<Payments />} />
             <Route path="/receipts" element={<Receipts />} />
-            <Route path="/pending-fees" element={<PendingFees />} />
             {permissions.canManageRoles && <Route path="/submit-payment" element={<SubmitPayment />} />}
             {permissions.canEditStudents && <Route path="/student-settings" element={<StudentSettings />} />}
           </>
@@ -79,14 +84,18 @@ function ProtectedRoutes() {
 
         {permissions.canViewTeachers && (
           <>
-            <Route path="/teachers" element={<Teachers />} />
-            <Route path="/teachers/:id" element={<TeacherDetail />} />
-            <Route path="/teacher-salaries" element={<TeacherSalaries />} />
-            <Route path="/teacher-loans" element={<TeacherLoans />} />
-            <Route path="/teacher-attendance" element={<TeacherAttendance />} />
-            <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
-            {permissions.canEditTeachers && <Route path="/teacher-settings" element={<TeacherSettings />} />}
             <Route path="/pending-salaries" element={<PendingSalaries />} />
+            {!teachersOnlyAccess && (
+              <>
+                <Route path="/teachers" element={<Teachers />} />
+                <Route path="/teachers/:id" element={<TeacherDetail />} />
+                <Route path="/teacher-salaries" element={<TeacherSalaries />} />
+                <Route path="/teacher-loans" element={<TeacherLoans />} />
+                <Route path="/teacher-attendance" element={<TeacherAttendance />} />
+                <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
+                {permissions.canEditSalaries && <Route path="/teacher-settings" element={<TeacherSettings />} />}
+              </>
+            )}
           </>
         )}
 

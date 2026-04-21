@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Trash2, UserPlus } from "lucide-react";
+import { Pencil, Trash2, UserPlus } from "lucide-react";
 
 type AppRole = "admin" | "manager" | "user";
 type AccessLevel = "admin" | "both_edit" | "both_view" | "students_only" | "teachers_only";
@@ -37,8 +38,11 @@ type PermissionRow = {
   user_id: string;
   can_view_students: boolean;
   can_edit_students: boolean;
+  can_edit_fees: boolean;
   can_view_teachers: boolean;
   can_edit_teachers: boolean;
+  can_edit_salaries: boolean;
+  can_manage_roles: boolean;
 };
 
 const accessOptions: Array<{ value: AccessLevel; label: string; description: string }> = [
@@ -60,12 +64,12 @@ const accessOptions: Array<{ value: AccessLevel; label: string; description: str
   {
     value: "students_only",
     label: "Students only",
-    description: "Can view and edit student records only.",
+    description: "Can manage student records and collect fees, but cannot edit fee structures or collected payments.",
   },
   {
     value: "teachers_only",
     label: "Teachers only",
-    description: "Can view and edit teacher records only.",
+    description: "Can only view Pending Salaries and pay pending salaries. Cannot edit salary records.",
   },
 ];
 
@@ -74,8 +78,10 @@ const accessFromPermissions = (permissions?: PermissionRow): AccessLevel => {
   if (
     permissions.can_view_students &&
     permissions.can_edit_students &&
+    permissions.can_edit_fees &&
     permissions.can_view_teachers &&
     permissions.can_edit_teachers &&
+    permissions.can_edit_salaries &&
     permissions.can_manage_roles
   ) {
     return "admin";
@@ -83,8 +89,10 @@ const accessFromPermissions = (permissions?: PermissionRow): AccessLevel => {
   if (
     permissions.can_view_students &&
     permissions.can_edit_students &&
+    permissions.can_edit_fees &&
     permissions.can_view_teachers &&
-    permissions.can_edit_teachers
+    permissions.can_edit_teachers &&
+    permissions.can_edit_salaries
   ) {
     return "both_edit";
   }
@@ -108,6 +116,9 @@ export default function RoleManagement() {
   const [newAccessLevel, setNewAccessLevel] = useState<AccessLevel>("students_only");
   const [creating, setCreating] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [editingEmailUser, setEditingEmailUser] = useState<UserRole | null>(null);
+  const [editEmail, setEditEmail] = useState("");
+  const [updatingEmail, setUpdatingEmail] = useState(false);
 
   const isAccessLevel = (value: string): value is AccessLevel =>
     value === "admin" || value === "both_edit" || value === "both_view" || value === "students_only" || value === "teachers_only";
@@ -185,6 +196,30 @@ export default function RoleManagement() {
     }
   };
 
+  const updateUserEmail = async (userId: string, email: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-email`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId, email }),
+    });
+
+    const body = await response.json().catch(() => null);
+    if (!response.ok || body?.error) {
+      throw new Error(body?.error || `Failed to update email (${response.status})`);
+    }
+
+    return body;
+  };
+
   const fetchRoles = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from("user_roles").select("*");
@@ -202,7 +237,7 @@ export default function RoleManagement() {
 
       const { data: permissionsData } = await supabase
         .from("user_permissions")
-        .select("user_id, can_view_students, can_edit_students, can_view_teachers, can_edit_teachers");
+        .select("user_id, can_view_students, can_edit_students, can_edit_fees, can_view_teachers, can_edit_teachers, can_edit_salaries, can_manage_roles");
       const permissionsById = new Map(
         (permissionsData ?? []).map((permission) => [permission.user_id, permission as PermissionRow])
       );
@@ -278,42 +313,81 @@ export default function RoleManagement() {
     }
   };
 
+  const openEditEmail = (role: UserRole) => {
+    setEditingEmailUser(role);
+    setEditEmail(role.email ?? "");
+  };
+
+  const handleUpdateEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmailUser || !editEmail.trim()) return;
+
+    setUpdatingEmail(true);
+    try {
+      await updateUserEmail(editingEmailUser.userId, editEmail.trim());
+      toast.success("Email updated");
+      setEditingEmailUser(null);
+      setEditEmail("");
+      await fetchRoles();
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message === "Failed to fetch"
+          ? "Could not reach the update-user-email Edge Function. Deploy update-user-email in Supabase and disable Verify JWT."
+          : err instanceof Error
+            ? err.message
+            : "Failed to update email";
+      toast.error(message);
+    } finally {
+      setUpdatingEmail(false);
+    }
+  };
+
   const getAccessPermissions = (accessLevel: AccessLevel) => {
     switch (accessLevel) {
       case "admin":
         return {
           can_view_students: true,
           can_edit_students: true,
+          can_edit_fees: true,
           can_view_teachers: true,
           can_edit_teachers: true,
+          can_edit_salaries: true,
         };
       case "both_edit":
         return {
           can_view_students: true,
           can_edit_students: true,
+          can_edit_fees: true,
           can_view_teachers: true,
           can_edit_teachers: true,
+          can_edit_salaries: true,
         };
       case "both_view":
         return {
           can_view_students: true,
           can_edit_students: false,
+          can_edit_fees: false,
           can_view_teachers: true,
           can_edit_teachers: false,
+          can_edit_salaries: false,
         };
       case "teachers_only":
         return {
           can_view_students: false,
           can_edit_students: false,
+          can_edit_fees: false,
           can_view_teachers: true,
           can_edit_teachers: true,
+          can_edit_salaries: false,
         };
       default:
         return {
           can_view_students: true,
           can_edit_students: true,
+          can_edit_fees: false,
           can_view_teachers: false,
           can_edit_teachers: false,
+          can_edit_salaries: false,
         };
     }
   };
@@ -370,13 +444,24 @@ export default function RoleManagement() {
           {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : roles.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No roles found.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>User</TableHead><TableHead>Current Access</TableHead><TableHead className="text-right">Change Access</TableHead><TableHead className="text-right">Delete</TableHead>
+                <TableHead>User</TableHead><TableHead>Current Access</TableHead><TableHead className="text-right">Change Access</TableHead><TableHead className="text-right">Actions</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {roles.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
-                      <p className="font-medium">{r.email || "Email unavailable"}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{r.email || "Email unavailable"}</p>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => openEditEmail(r)}
+                          title="Edit email"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <p className="font-mono text-xs text-muted-foreground">{r.userId.slice(0, 8)}...</p>
                     </TableCell>
                     <TableCell>
@@ -443,6 +528,42 @@ export default function RoleManagement() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(editingEmailUser)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingEmailUser(null);
+            setEditEmail("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User Email</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdateEmail} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="user@example.com"
+                required
+              />
+              {editingEmailUser && (
+                <p className="text-xs text-muted-foreground">
+                  User ID: {editingEmailUser.userId}
+                </p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" disabled={updatingEmail}>
+              {updatingEmail ? "Updating..." : "Update Email"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

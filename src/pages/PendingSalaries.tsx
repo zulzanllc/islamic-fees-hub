@@ -23,6 +23,11 @@ export default function PendingSalaries() {
   const { salaries, addSalary } = useTeacherSalaries();
   const { loans } = useTeacherLoans();
   const { permissions } = useAuth();
+  const teachersOnlyAccess =
+    permissions.canViewTeachers &&
+    permissions.canPaySalaries &&
+    !permissions.canViewStudents &&
+    !permissions.canManageRoles;
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
 
@@ -268,16 +273,20 @@ export default function PendingSalaries() {
                      <th className="text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
                      <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
                      <th className="text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
-                     {permissions.canEditTeachers && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
+                     {permissions.canPaySalaries && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
                    {pendingData.map(({ teacher, baseSalary, loanDeduction, advanceTaken, expectedSalary, paidAmount, pendingAmount, status, estCompletion, prorated }) => (
                      <tr key={teacher.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                        <td className="py-3 px-2">
-                         <Link to={`/teachers/${teacher.id}`} className="font-medium text-primary hover:underline">
-                           {teacher.name}
-                         </Link>
+                         {teachersOnlyAccess ? (
+                           <span className="font-medium">{teacher.name}</span>
+                         ) : (
+                           <Link to={`/teachers/${teacher.id}`} className="font-medium text-primary hover:underline">
+                             {teacher.name}
+                           </Link>
+                         )}
                          <p className="text-xs text-muted-foreground">{teacher.cnic}</p>
                        </td>
                        <td className="py-3 px-2">{teacher.contact}</td>
@@ -297,7 +306,7 @@ export default function PendingSalaries() {
                           {status === "partial" ? "Partial" : "Unpaid"}
                         </Badge>
                       </td>
-                      {permissions.canEditTeachers && (
+                      {permissions.canPaySalaries && (
                         <td className="py-3 px-2 text-center">
                           <Button size="sm" variant="outline" onClick={() => openPayDialog(teacher, pendingAmount, loanDeduction, baseSalary)}>
                             <Wallet className="h-3 w-3 mr-1" /> Pay

@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Pencil, Trash2, Download, Eye } from "lucide-react";
+import { ChevronDown, Plus, Search, Pencil, Trash2, Download, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
@@ -64,7 +66,7 @@ export default function Students() {
   const { classNames } = useClasses();
   const { permissions } = useAuth();
   const [search, setSearch] = useState("");
-  const [filterClass, setFilterClass] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StudentForm>(emptyForm);
@@ -77,9 +79,24 @@ export default function Students() {
       s.guardianName.toLowerCase().includes(q) ||
       s.contact.toLowerCase().includes(q) ||
       s.studentCode.toLowerCase().includes(q);
-    const matchClass = filterClass === "all" || s.classGrade === filterClass;
+    const matchClass = selectedClasses.length === 0 || selectedClasses.includes(s.classGrade);
     return matchSearch && matchClass;
   });
+
+  const toggleClassFilter = (className: string) => {
+    setSelectedClasses((current) =>
+      current.includes(className)
+        ? current.filter((selected) => selected !== className)
+        : [...current, className]
+    );
+  };
+
+  const classFilterLabel =
+    selectedClasses.length === 0
+      ? "All Classes"
+      : selectedClasses.length === 1
+        ? selectedClasses[0]
+        : `${selectedClasses.length} classes selected`;
 
   const handleSubmit = async () => {
     if (!form.name || !form.classGrade) return;
@@ -284,19 +301,49 @@ export default function Students() {
             className="pl-9"
           />
         </div>
-        <Select value={filterClass} onValueChange={setFilterClass}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Classes</SelectItem>
-            {classNames.map((g) => (
-              <SelectItem key={g} value={g}>
-                {g}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-[220px] justify-between">
+              <span className="truncate">{classFilterLabel}</span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-[260px] p-3">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Filter by class</p>
+                {selectedClasses.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setSelectedClasses([])}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                {classNames.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No classes found.</p>
+                ) : (
+                  classNames.map((className) => (
+                    <label
+                      key={className}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={selectedClasses.includes(className)}
+                        onCheckedChange={() => toggleClassFilter(className)}
+                      />
+                      <span>{className}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <Card>

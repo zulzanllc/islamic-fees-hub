@@ -14,36 +14,46 @@ function getAccessPermissions(accessLevel: AccessLevel) {
       return {
         can_view_students: true,
         can_edit_students: true,
+        can_edit_fees: true,
         can_view_teachers: true,
         can_edit_teachers: true,
+        can_edit_salaries: true,
       };
     case "both_edit":
       return {
         can_view_students: true,
         can_edit_students: true,
+        can_edit_fees: true,
         can_view_teachers: true,
         can_edit_teachers: true,
+        can_edit_salaries: true,
       };
     case "both_view":
       return {
         can_view_students: true,
         can_edit_students: false,
+        can_edit_fees: false,
         can_view_teachers: true,
         can_edit_teachers: false,
+        can_edit_salaries: false,
       };
     case "teachers_only":
       return {
         can_view_students: false,
         can_edit_students: false,
+        can_edit_fees: false,
         can_view_teachers: true,
         can_edit_teachers: true,
+        can_edit_salaries: false,
       };
     default:
       return {
         can_view_students: true,
         can_edit_students: true,
+        can_edit_fees: false,
         can_view_teachers: false,
         can_edit_teachers: false,
+        can_edit_salaries: false,
       };
   }
 }

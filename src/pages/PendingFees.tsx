@@ -225,7 +225,7 @@ export default function PendingFees() {
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
                     <th className="text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
-                    {permissions.canEditStudents && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
+                    {permissions.canCollectFees && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -252,7 +252,7 @@ export default function PendingFees() {
                           {status === "partial" ? "Partial" : "Unpaid"}
                         </Badge>
                       </td>
-                      {permissions.canEditStudents && (
+                      {permissions.canCollectFees && (
                         <td className="py-3 px-2 text-center">
                           <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, pendingAmount)}>
                             <CreditCard className="h-3 w-3 mr-1" /> Collect

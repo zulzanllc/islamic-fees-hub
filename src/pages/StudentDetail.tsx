@@ -175,7 +175,7 @@ export default function StudentDetail() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Dialog open={payDialogOpen} onOpenChange={(open) => { setPayDialogOpen(open); if (!open) resetPayForm(); }}>
-            {permissions.canEditStudents && (
+            {permissions.canCollectFees && (
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="h-4 w-4 mr-1" /> Record Payment

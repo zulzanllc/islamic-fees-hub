@@ -5,8 +5,12 @@ import { supabase } from "@/integrations/supabase/client";
 export interface UserPermissions {
   canViewStudents: boolean;
   canEditStudents: boolean;
+  canEditFees: boolean;
+  canCollectFees: boolean;
   canViewTeachers: boolean;
   canEditTeachers: boolean;
+  canEditSalaries: boolean;
+  canPaySalaries: boolean;
   canManageRoles: boolean;
 }
 
@@ -26,8 +30,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const emptyPermissions: UserPermissions = {
   canViewStudents: false,
   canEditStudents: false,
+  canEditFees: false,
+  canCollectFees: false,
   canViewTeachers: false,
   canEditTeachers: false,
+  canEditSalaries: false,
+  canPaySalaries: false,
   canManageRoles: false,
 };
 
@@ -36,8 +44,12 @@ const permissionsFromRole = (role: "admin" | "manager" | "user" | null): UserPer
     return {
       canViewStudents: true,
       canEditStudents: true,
+      canEditFees: true,
+      canCollectFees: true,
       canViewTeachers: true,
       canEditTeachers: true,
+      canEditSalaries: true,
+      canPaySalaries: true,
       canManageRoles: true,
     };
   }
@@ -45,17 +57,47 @@ const permissionsFromRole = (role: "admin" | "manager" | "user" | null): UserPer
     return {
       canViewStudents: true,
       canEditStudents: false,
+      canEditFees: false,
+      canCollectFees: false,
       canViewTeachers: true,
       canEditTeachers: false,
+      canEditSalaries: false,
+      canPaySalaries: false,
       canManageRoles: false,
     };
   }
   return {
     canViewStudents: true,
     canEditStudents: true,
+    canEditFees: false,
+    canCollectFees: true,
     canViewTeachers: false,
     canEditTeachers: false,
+    canEditSalaries: false,
+    canPaySalaries: false,
     canManageRoles: false,
+  };
+};
+
+const normalizePermissions = (permissions: UserPermissions): UserPermissions => {
+  const canManageBoth =
+    permissions.canViewStudents &&
+    permissions.canEditStudents &&
+    permissions.canViewTeachers &&
+    permissions.canEditTeachers;
+
+  return {
+    ...permissions,
+    canEditFees: permissions.canManageRoles || (canManageBoth && permissions.canEditFees),
+    canEditSalaries: permissions.canManageRoles || (canManageBoth && permissions.canEditSalaries),
+    canCollectFees:
+      permissions.canManageRoles ||
+      (canManageBoth && permissions.canEditFees) ||
+      (permissions.canViewStudents && permissions.canEditStudents && !permissions.canViewTeachers),
+    canPaySalaries:
+      permissions.canManageRoles ||
+      (canManageBoth && permissions.canEditSalaries) ||
+      (permissions.canViewTeachers && permissions.canEditTeachers && !permissions.canViewStudents),
   };
 };
 
@@ -94,13 +136,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (nextIsAdmin) {
             setPermissions(permissionsFromRole("admin"));
           } else if (permissionData) {
-            setPermissions({
+            setPermissions(normalizePermissions({
               canViewStudents: permissionData.can_view_students,
               canEditStudents: permissionData.can_edit_students,
+              canEditFees: permissionData.can_edit_fees ?? permissionData.can_edit_students,
+              canCollectFees: false,
               canViewTeachers: permissionData.can_view_teachers,
               canEditTeachers: permissionData.can_edit_teachers,
+              canEditSalaries: permissionData.can_edit_salaries ?? permissionData.can_edit_teachers,
+              canPaySalaries: false,
               canManageRoles: permissionData.can_manage_roles,
-            });
+            }));
           } else {
             setPermissions(permissionsFromRole(nextRole));
           }

@@ -373,7 +373,9 @@ export type Database = {
       user_permissions: {
         Row: {
           can_edit_students: boolean
+          can_edit_fees: boolean
           can_edit_teachers: boolean
+          can_edit_salaries: boolean
           can_manage_roles: boolean
           can_view_students: boolean
           can_view_teachers: boolean
@@ -384,7 +386,9 @@ export type Database = {
         }
         Insert: {
           can_edit_students?: boolean
+          can_edit_fees?: boolean
           can_edit_teachers?: boolean
+          can_edit_salaries?: boolean
           can_manage_roles?: boolean
           can_view_students?: boolean
           can_view_teachers?: boolean
@@ -395,7 +399,9 @@ export type Database = {
         }
         Update: {
           can_edit_students?: boolean
+          can_edit_fees?: boolean
           can_edit_teachers?: boolean
+          can_edit_salaries?: boolean
           can_manage_roles?: boolean
           can_view_students?: boolean
           can_view_teachers?: boolean
