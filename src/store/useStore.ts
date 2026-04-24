@@ -22,6 +22,8 @@ export function useStudents() {
           contact: s.contact,
           classGrade: s.class_grade,
           enrollmentDate: s.enrollment_date,
+          leavingDate: (s as any).leaving_date ?? null,
+          monthlyFee: Number((s as any).monthly_fee ?? 0),
           status: s.status as "active" | "inactive",
         }))
       );
@@ -38,6 +40,8 @@ export function useStudents() {
       contact: student.contact,
       class_grade: student.classGrade,
       enrollment_date: student.enrollmentDate,
+      leaving_date: student.leavingDate || null,
+      monthly_fee: student.monthlyFee ?? 0,
       status: student.status,
     };
     if (student.studentCode) insertData.student_code = student.studentCode;
@@ -58,6 +62,8 @@ export function useStudents() {
         contact: s.contact,
         class_grade: s.classGrade,
         enrollment_date: s.enrollmentDate,
+        leaving_date: s.leavingDate || null,
+        monthly_fee: s.monthlyFee ?? 0,
         status: s.status,
       };
       if (s.studentCode) row.student_code = s.studentCode;
@@ -75,6 +81,8 @@ export function useStudents() {
     if (updates.contact !== undefined) mapped.contact = updates.contact;
     if (updates.classGrade !== undefined) mapped.class_grade = updates.classGrade;
     if (updates.enrollmentDate !== undefined) mapped.enrollment_date = updates.enrollmentDate;
+    if (updates.leavingDate !== undefined) mapped.leaving_date = updates.leavingDate || null;
+    if (updates.monthlyFee !== undefined) mapped.monthly_fee = updates.monthlyFee;
     if (updates.status !== undefined) mapped.status = updates.status;
     await supabase.from("students").update(mapped).eq("id", id);
     await fetchStudents();
@@ -163,6 +171,7 @@ export function usePayments() {
           collectedBy: p.collected_by,
           paymentMode: p.payment_mode,
           receiptPrinted: (p as any).receipt_printed ?? false,
+          proofImageUrl: (p as any).proof_image_url ?? "",
         }))
       );
     }
@@ -185,6 +194,7 @@ export function usePayments() {
         notes: payment.notes,
         collected_by: payment.collectedBy,
         payment_mode: payment.paymentMode,
+        proof_image_url: (payment as any).proofImageUrl || "",
       })
       .select()
       .single();
@@ -201,6 +211,8 @@ export function usePayments() {
         notes: data.notes,
         collectedBy: data.collected_by,
         paymentMode: data.payment_mode,
+        proofImageUrl: (data as any).proof_image_url ?? "",
+        receiptPrinted: (data as any).receipt_printed ?? false,
       };
     }
     return null;
@@ -217,13 +229,20 @@ export function usePayments() {
     if (updates.collectedBy !== undefined) mapped.collected_by = updates.collectedBy;
     if (updates.paymentMode !== undefined) mapped.payment_mode = updates.paymentMode;
     if (updates.receiptPrinted !== undefined) mapped.receipt_printed = updates.receiptPrinted;
+    if (updates.proofImageUrl !== undefined) mapped.proof_image_url = updates.proofImageUrl;
 
     const { error } = await supabase.from("payments").update(mapped).eq("id", id);
     if (!error) await fetchPayments();
     return error;
   }, [fetchPayments]);
 
-  return { payments, loading, addPayment, updatePayment };
+  const deletePayment = useCallback(async (id: string) => {
+    const { error } = await supabase.from("payments").delete().eq("id", id);
+    if (!error) await fetchPayments();
+    return error;
+  }, [fetchPayments]);
+
+  return { payments, loading, addPayment, updatePayment, deletePayment };
 }
 
 export function useStudentPaymentSubmissions() {
@@ -232,13 +251,13 @@ export function useStudentPaymentSubmissions() {
 
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("student_payment_submissions")
       .select("*")
       .order("submission_date", { ascending: false })
       .order("created_at", { ascending: false });
 
-    if (data) {
+    if (!error && data) {
       setSubmissions(
         data.map((submission) => ({
           id: submission.id,
@@ -254,6 +273,8 @@ export function useStudentPaymentSubmissions() {
           createdAt: submission.created_at,
         }))
       );
+    } else {
+      setSubmissions([]);
     }
     setLoading(false);
   }, []);

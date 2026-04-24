@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStudents, useFeeStructures } from "@/store/useStore";
+import { useStudents } from "@/store/useStore";
 import { Student } from "@/types";
 import { useClasses } from "@/hooks/useClasses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,9 +34,11 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, Plus, Search, Pencil, Trash2, Download, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { downloadCSV } from "@/lib/exportCsv";
+import { formatPKR } from "@/lib/currency";
 import { format } from "date-fns";
 import StudentCsvImport from "@/components/StudentCsvImport";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 type StudentForm = {
   name: string;
@@ -44,6 +46,7 @@ type StudentForm = {
   contact: string;
   classGrade: string;
   enrollmentDate: string;
+  leavingDate: string;
   status: "active" | "inactive";
   studentCode: string;
   monthlyFee: string;
@@ -55,6 +58,7 @@ const emptyForm: StudentForm = {
   contact: "",
   classGrade: "",
   enrollmentDate: format(new Date(), "yyyy-MM-dd"),
+  leavingDate: "",
   status: "active",
   studentCode: "",
   monthlyFee: "",
@@ -62,7 +66,6 @@ const emptyForm: StudentForm = {
 
 export default function Students() {
   const { students, addStudent, bulkAddStudents, updateStudent, deleteStudent } = useStudents();
-  const { fees, addFee } = useFeeStructures();
   const { classNames } = useClasses();
   const { permissions } = useAuth();
   const [search, setSearch] = useState("");
@@ -100,23 +103,15 @@ export default function Students() {
 
   const handleSubmit = async () => {
     if (!form.name || !form.classGrade) return;
+    const monthlyFee = parseFloat(form.monthlyFee) || 0;
+    if (monthlyFee <= 0) {
+      toast.error("Monthly fee is required for each student");
+      return;
+    }
     if (editingId) {
-      updateStudent(editingId, form);
+      updateStudent(editingId, { ...form, monthlyFee });
     } else {
-      const result = await addStudent(form);
-      // If a monthly fee was provided, add it to fee_structures if not already set
-      if (form.monthlyFee && parseFloat(form.monthlyFee) > 0) {
-        const existingTuition = fees.find(
-          (f) => f.classGrade === form.classGrade && f.feeType === "tuition"
-        );
-        if (!existingTuition) {
-          await addFee({
-            classGrade: form.classGrade,
-            feeType: "tuition",
-            amount: parseFloat(form.monthlyFee),
-          });
-        }
-      }
+      await addStudent({ ...form, monthlyFee });
     }
     setForm(emptyForm);
     setEditingId(null);
@@ -125,18 +120,16 @@ export default function Students() {
 
   const handleEdit = (student: Student) => {
     setEditingId(student.id);
-    const existingFee = fees.find(
-      (f) => f.classGrade === student.classGrade && f.feeType === "tuition"
-    );
     setForm({
       name: student.name,
       guardianName: student.guardianName,
       contact: student.contact,
       classGrade: student.classGrade,
       enrollmentDate: student.enrollmentDate,
+      leavingDate: student.leavingDate ?? "",
       status: student.status,
       studentCode: student.studentCode,
-      monthlyFee: existingFee ? String(existingFee.amount) : "",
+      monthlyFee: student.monthlyFee ? String(student.monthlyFee) : "",
     });
     setDialogOpen(true);
   };
@@ -161,9 +154,12 @@ export default function Students() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["Code", "Name", "Guardian", "Class", "Contact", "Joining Date", "Status"];
-              const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, s.contact, s.enrollmentDate, s.status]);
-              downloadCSV("students.csv", headers, rows);
+              const headers = ["Code", "Name", "Guardian", "Class", "Monthly Fee", "Contact", "Joining Date", "Leaving Date", "Status"];
+              const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
+              downloadCSV("students.csv", headers, rows, {
+                delimiter: "\t",
+                encoding: "utf-16le",
+              });
             }}
           >
             <Download className="h-4 w-4 mr-1" /> Export CSV
@@ -258,7 +254,7 @@ export default function Students() {
                 />
               </div>
               <div>
-                <Label>Monthly Tuition Fee (PKR)</Label>
+                <Label>Monthly Tuition Fee (PKR) *</Label>
                 <Input
                   type="number"
                   min={0}
@@ -271,7 +267,7 @@ export default function Students() {
                 <Label>Status</Label>
                 <Select
                   value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: v as "active" | "inactive" })}
+                  onValueChange={(v) => setForm({ ...form, status: v as "active" | "inactive", leavingDate: v === "active" ? "" : form.leavingDate })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -282,6 +278,17 @@ export default function Students() {
                   </SelectContent>
                 </Select>
               </div>
+              {form.status === "inactive" && (
+                <div>
+                  <Label>Leaving Date</Label>
+                  <Input
+                    type="date"
+                    value={form.leavingDate}
+                    min={form.enrollmentDate}
+                    onChange={(e) => setForm({ ...form, leavingDate: e.target.value })}
+                  />
+                </div>
+              )}
               <Button onClick={handleSubmit} className="w-full">
                 {editingId ? "Update" : "Add"} Student
               </Button>
@@ -355,8 +362,10 @@ export default function Students() {
                 <TableHead>Name</TableHead>
                 <TableHead>Guardian</TableHead>
                 <TableHead>Class</TableHead>
+                <TableHead>Monthly Fee</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Joining Date</TableHead>
+                <TableHead>Leaving Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -364,7 +373,7 @@ export default function Students() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     No students found.
                   </TableCell>
                 </TableRow>
@@ -375,8 +384,10 @@ export default function Students() {
                     <TableCell className="font-medium">{s.name}</TableCell>
                     <TableCell>{s.guardianName}</TableCell>
                     <TableCell>{s.classGrade}</TableCell>
+                    <TableCell>{s.monthlyFee ? formatPKR(s.monthlyFee) : "-"}</TableCell>
                     <TableCell>{s.contact}</TableCell>
                     <TableCell>{s.enrollmentDate}</TableCell>
+                    <TableCell>{s.leavingDate ?? "-"}</TableCell>
                     <TableCell>
                       <Badge
                         variant={s.status === "active" ? "default" : "secondary"}

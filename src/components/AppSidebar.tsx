@@ -5,7 +5,6 @@ import {
   Users,
   CreditCard,
   Receipt,
-  DollarSign,
   LogOut,
   GraduationCap,
   Wallet,
@@ -15,6 +14,7 @@ import {
   Settings,
   AlertCircle,
   Send,
+  UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,11 +32,11 @@ import {
 const studentNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Students", url: "/students", icon: Users },
-  { title: "Fee Structure", url: "/fees", icon: DollarSign },
   { title: "Payments", url: "/payments", icon: CreditCard },
   { title: "Pending Fees", url: "/pending-fees", icon: AlertCircle },
-  { title: "Submit Payment", url: "/submit-payment", icon: Send, adminOnly: true },
+  { title: "Submit Payment", url: "/submit-payment", icon: Send },
   { title: "Receipts", url: "/receipts", icon: Receipt },
+  { title: "Student Leaving", url: "/student-leaving", icon: UserMinus },
   { title: "Settings", url: "/student-settings", icon: Settings },
 ];
 
@@ -64,8 +64,7 @@ export function AppSidebar() {
     !permissions.canViewStudents &&
     !permissions.canManageRoles;
   const visibleStudentNav = studentNav.filter((item) => {
-    if (item.url === "/student-settings") return permissions.canEditStudents;
-    if ("adminOnly" in item && item.adminOnly) return permissions.canManageRoles;
+    if (item.url === "/student-settings" || item.url === "/student-leaving") return permissions.canEditStudents;
     return true;
   });
   const visibleTeacherNav = teacherNav.filter((item) => {

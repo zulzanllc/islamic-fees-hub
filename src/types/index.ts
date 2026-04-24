@@ -6,6 +6,8 @@ export interface Student {
   contact: string;
   classGrade: string;
   enrollmentDate: string;
+  leavingDate?: string | null;
+  monthlyFee: number;
   status: "active" | "inactive";
 }
 
@@ -28,6 +30,7 @@ export interface Payment {
   collectedBy: string | null;
   paymentMode: string;
   receiptPrinted: boolean;
+  proofImageUrl: string;
 }
 
 export interface StudentPaymentSubmission {
@@ -80,6 +83,7 @@ export interface TeacherSalary {
   notes: string;
   paymentMode: "cash" | "online";
   receiptUrl: string;
+  proofImageUrl: string;
   customAmount: number;
 }
 

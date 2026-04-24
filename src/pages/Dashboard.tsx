@@ -13,7 +13,8 @@ import { Users, DollarSign, AlertCircle, TrendingUp, Plus, CreditCard } from "lu
 import { Link } from "react-router-dom";
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { formatPKR } from "@/lib/currency";
-import { getProratedMonthlyAmount } from "@/lib/proration";
+import { getStudentMonthlyDue } from "@/lib/proration";
+import { getStudentMonthlyFee } from "@/lib/studentFees";
 
 const chartConfig: ChartConfig = {
   revenue: { label: "Revenue", color: "hsl(160 45% 32%)" },
@@ -32,9 +33,8 @@ export default function Dashboard() {
     .forEach((p) => {
       studentsPaidThisMonth.set(p.studentId, (studentsPaidThisMonth.get(p.studentId) ?? 0) + p.amountPaid);
     });
-  const pendingStudents = activeStudents.filter((student) => {
-    const fee = fees.find((f) => f.classGrade === student.classGrade && f.feeType === "tuition");
-    const expectedFee = getProratedMonthlyAmount(fee?.amount ?? 0, student.enrollmentDate, currentMonth);
+  const pendingStudents = students.filter((student) => {
+    const expectedFee = getStudentMonthlyDue(getStudentMonthlyFee(student, fees), student.enrollmentDate, currentMonth, student.leavingDate);
     return expectedFee > (studentsPaidThisMonth.get(student.id) ?? 0);
   });
 

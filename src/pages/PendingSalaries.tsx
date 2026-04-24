@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useTeachers, useTeacherSalaries, useTeacherLoans } from "@/store/useTeacherStore";
+import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
 import { AlertCircle, Wallet, Download } from "lucide-react";
@@ -17,11 +18,13 @@ import { toast } from "sonner";
 import type { Teacher } from "@/types";
 import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 import { useAuth } from "@/hooks/useAuth";
+import ProofUpload from "@/components/ProofUpload";
 
 export default function PendingSalaries() {
   const { teachers } = useTeachers();
   const { salaries, addSalary } = useTeacherSalaries();
   const { loans } = useTeacherLoans();
+  const { advances } = useTeacherAdvances();
   const { permissions } = useAuth();
   const teachersOnlyAccess =
     permissions.canViewTeachers &&
@@ -37,6 +40,7 @@ export default function PendingSalaries() {
   const [payAmount, setPayAmount] = useState("");
   const [payMode, setPayMode] = useState("cash");
   const [payNotes, setPayNotes] = useState("");
+  const [payProofUrl, setPayProofUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const openPayDialog = (teacher: Teacher, pending: number, loanDeduction: number, baseSalary: number) => {
@@ -44,6 +48,7 @@ export default function PendingSalaries() {
     setPayAmount(String(pending));
     setPayMode("cash");
     setPayNotes("");
+    setPayProofUrl("");
     setPayOpen(true);
   };
 
@@ -52,6 +57,10 @@ export default function PendingSalaries() {
     const amount = Number(payAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error("Enter a valid amount");
+      return;
+    }
+    if (payMode === "online" && !payProofUrl) {
+      toast.error("Please upload payment proof for online payment");
       return;
     }
     if (amount > payTeacher.pending) {
@@ -71,6 +80,7 @@ export default function PendingSalaries() {
         notes: payNotes,
         paymentMode: payMode as "cash" | "online",
         receiptUrl: "",
+        proofImageUrl: payProofUrl,
         customAmount: amount !== payTeacher.pending ? amount : 0,
       });
       toast.success(`Salary of ${formatPKR(amount)} paid to ${payTeacher.teacher.name}`);
@@ -122,10 +132,13 @@ export default function PendingSalaries() {
         }
         return sum;
       }, 0);
-      // Advance salary amounts (manual loans) count as already paid
-      const advanceTaken = activeLoans
-        .filter((l) => l.repaymentType === "manual")
-        .reduce((sum, l) => sum + l.remaining, 0);
+      const manualLoanAdvance = activeLoans
+        .filter((loan) => loan.repaymentType === "manual")
+        .reduce((sum, loan) => sum + loan.remaining, 0);
+      const recordedAdvance = advances
+        .filter((advance) => advance.teacherId === teacher.id && advance.month === selectedMonth)
+        .reduce((sum, advance) => sum + advance.amount, 0);
+      const advanceTaken = manualLoanAdvance + recordedAdvance;
 
       const expectedSalary = Math.max(0, baseSalary - loanDeduction - advanceTaken);
       const paidAmount = paidTeachers.get(teacher.id) ?? 0;
@@ -184,7 +197,7 @@ export default function PendingSalaries() {
         prorated: isJoiningMonth(teacher.joiningDate, selectedMonth),
       };
     }).filter((d) => d.status !== "paid");
-  }, [activeTeachers, salaries, loans, selectedMonth]);
+  }, [activeTeachers, salaries, loans, advances, selectedMonth]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
 
@@ -354,6 +367,13 @@ export default function PendingSalaries() {
                 </SelectContent>
               </Select>
             </div>
+            {payMode === "online" && (
+              <ProofUpload
+                value={payProofUrl}
+                onChange={setPayProofUrl}
+                required
+              />
+            )}
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Textarea value={payNotes} onChange={(e) => setPayNotes(e.target.value)} placeholder="Any notes..." />

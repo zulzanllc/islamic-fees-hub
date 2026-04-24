@@ -34,7 +34,8 @@ import {
 import { ArrowLeft, User, CreditCard, AlertTriangle, Plus } from "lucide-react";
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentMonthlyFee } from "@/lib/studentFees";
 
 export default function StudentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -94,51 +95,52 @@ export default function StudentDetail() {
 
   const paymentMonths = [...new Set(studentPayments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
 
-  const tuitionFee = fees.find(
-    (f) => f.classGrade === student?.classGrade && f.feeType === "tuition"
-  );
+  const monthlyFee = getStudentMonthlyFee(student, fees);
   const registrationFee = fees.find(
     (f) => f.classGrade === student?.classGrade && f.feeType === "registration"
   );
-  const selectedFee = payForm.feeType === "tuition" ? tuitionFee : registrationFee;
+  const selectedFee = payForm.feeType === "tuition" ? undefined : registrationFee;
   const suggestedAmount =
-    student && selectedFee
+    student
       ? payForm.feeType === "tuition"
-        ? getProratedMonthlyAmount(selectedFee.amount, student.enrollmentDate, payForm.feeMonth)
-        : selectedFee.amount
+        ? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, payForm.feeMonth, student.leavingDate)
+        : selectedFee?.amount ?? 0
       : 0;
   const suggestedAmountIsProrated =
     Boolean(student) &&
     payForm.feeType === "tuition" &&
-    isJoiningMonth(student?.enrollmentDate ?? "", payForm.feeMonth);
+    (isJoiningMonth(student?.enrollmentDate ?? "", payForm.feeMonth) ||
+      isLeavingMonth(student?.leavingDate, payForm.feeMonth));
 
   useEffect(() => {
     if (!payDialogOpen || suggestedAmount <= 0) return;
     setPayForm((current) => ({ ...current, amountPaid: String(suggestedAmount) }));
   }, [payDialogOpen, payForm.feeType, payForm.feeMonth, suggestedAmount]);
 
-  // Calculate pending months — from enrollment to now
+  // Calculate pending months from enrollment through leaving date, or through now.
   const pendingMonths: { month: string; due: number; paid: number; balance: number; prorated: boolean }[] = [];
-  if (student && tuitionFee) {
+  if (student && monthlyFee > 0) {
     const enrollDate = parseISO(student.enrollmentDate);
     const now = new Date();
+    const leavingDate = student.leavingDate ? parseISO(student.leavingDate) : null;
+    const feeEndDate = leavingDate && leavingDate < now ? leavingDate : now;
     const months = eachMonthOfInterval({
       start: startOfMonth(enrollDate),
-      end: startOfMonth(now),
+      end: startOfMonth(feeEndDate),
     });
     for (const m of months) {
       const monthKey = format(m, "yyyy-MM");
       const paidForMonth = studentPayments
         .filter((p) => p.feeMonth === monthKey && p.feeType === "tuition")
         .reduce((sum, p) => sum + p.amountPaid, 0);
-      const due = getProratedMonthlyAmount(tuitionFee.amount, student.enrollmentDate, monthKey);
+      const due = getStudentMonthlyDue(monthlyFee, student.enrollmentDate, monthKey, student.leavingDate);
       const balance = due - paidForMonth;
       pendingMonths.push({
         month: monthKey,
         due,
         paid: paidForMonth,
         balance,
-        prorated: isJoiningMonth(student.enrollmentDate, monthKey),
+        prorated: isJoiningMonth(student.enrollmentDate, monthKey) || isLeavingMonth(student.leavingDate, monthKey),
       });
     }
   }
@@ -204,10 +206,10 @@ export default function StudentDetail() {
                 <div>
                   <Label>Amount (PKR) *</Label>
                   <Input type="number" min={0} value={payForm.amountPaid} onChange={(e) => setPayForm({ ...payForm, amountPaid: e.target.value })} placeholder="0" />
-                  {student && selectedFee && (
+                  {student && (payForm.feeType === "tuition" ? monthlyFee > 0 : Boolean(selectedFee)) && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       Suggested {payForm.feeType === "tuition" ? "tuition" : "fee"}: {formatPKR(suggestedAmount)}
-                      {suggestedAmountIsProrated ? " (prorated from joining date)" : ""}
+                      {suggestedAmountIsProrated ? " (prorated for joining/leaving date)" : ""}
                     </p>
                   )}
                 </div>
@@ -259,8 +261,12 @@ export default function StudentDetail() {
               <p className="font-medium">{student.enrollmentDate}</p>
             </div>
             <div>
+              <p className="text-muted-foreground">Leaving Date</p>
+              <p className="font-medium">{student.leavingDate ?? "-"}</p>
+            </div>
+            <div>
               <p className="text-muted-foreground">Monthly Fee</p>
-              <p className="font-medium">{tuitionFee ? formatPKR(tuitionFee.amount) : "Not set"}</p>
+              <p className="font-medium">{monthlyFee > 0 ? formatPKR(monthlyFee) : "Not set"}</p>
             </div>
           </div>
         </CardContent>

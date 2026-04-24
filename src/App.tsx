@@ -8,7 +8,6 @@ import { AppLayout } from "@/components/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import Students from "@/pages/Students";
 import StudentDetail from "@/pages/StudentDetail";
-import FeeStructure from "@/pages/FeeStructure";
 import Payments from "@/pages/Payments";
 import Receipts from "@/pages/Receipts";
 import Teachers from "@/pages/Teachers";
@@ -19,6 +18,7 @@ import TeacherDashboard from "@/pages/TeacherDashboard";
 import TeacherDetail from "@/pages/TeacherDetail";
 import RoleManagement from "@/pages/RoleManagement";
 import StudentSettings from "@/pages/StudentSettings";
+import StudentLeaving from "@/pages/StudentLeaving";
 import PendingFees from "@/pages/PendingFees";
 import SubmitPayment from "@/pages/SubmitPayment";
 import TeacherSettings from "@/pages/TeacherSettings";
@@ -74,10 +74,10 @@ function ProtectedRoutes() {
             <Route path="/pending-fees" element={<PendingFees />} />
             <Route path="/students" element={<Students />} />
             <Route path="/students/:id" element={<StudentDetail />} />
-            <Route path="/fees" element={<FeeStructure />} />
             <Route path="/payments" element={<Payments />} />
             <Route path="/receipts" element={<Receipts />} />
-            {permissions.canManageRoles && <Route path="/submit-payment" element={<SubmitPayment />} />}
+            <Route path="/submit-payment" element={<SubmitPayment />} />
+            {permissions.canEditStudents && <Route path="/student-leaving" element={<StudentLeaving />} />}
             {permissions.canEditStudents && <Route path="/student-settings" element={<StudentSettings />} />}
           </>
         )}

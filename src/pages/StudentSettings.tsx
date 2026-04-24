@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFeeStructures } from "@/store/useStore";
+import { useStudents } from "@/store/useStore";
 import { useClasses } from "@/hooks/useClasses";
 import { formatPKR } from "@/lib/currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,7 @@ import { toast } from "@/hooks/use-toast";
 import { Settings as SettingsIcon, TrendingUp, Plus, Trash2, GraduationCap, Pencil } from "lucide-react";
 
 export default function Settings() {
-  const { fees, updateFee } = useFeeStructures();
+  const { students, updateStudent } = useStudents();
   const { classes, classNames, addClass, deleteClass, updateClass } = useClasses();
   const [increaseType, setIncreaseType] = useState<"percentage" | "fixed">("percentage");
   const [increaseValue, setIncreaseValue] = useState("");
@@ -38,7 +38,7 @@ export default function Settings() {
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editClassName, setEditClassName] = useState("");
 
-  const tuitionFees = fees.filter((f) => f.feeType === "tuition");
+  const studentsWithFees = students.filter((student) => student.monthlyFee > 0);
 
   const toggleClass = (grade: string) => {
     setSelectedClasses((prev) =>
@@ -54,9 +54,9 @@ export default function Settings() {
     return currentAmount + val;
   };
 
-  const affectedFees = tuitionFees.filter((f) => {
+  const affectedStudents = studentsWithFees.filter((student) => {
     if (scope === "all") return true;
-    return selectedClasses.includes(f.classGrade);
+    return selectedClasses.includes(student.classGrade);
   });
 
   const handleApply = async () => {
@@ -74,14 +74,14 @@ export default function Settings() {
       return;
     }
 
-    for (const fee of affectedFees) {
-      const newAmount = getNewAmount(fee.amount);
-      await updateFee(fee.id, { amount: newAmount });
+    for (const student of affectedStudents) {
+      const newAmount = getNewAmount(student.monthlyFee);
+      await updateStudent(student.id, { monthlyFee: newAmount });
     }
 
     toast({
       title: "Fees updated",
-      description: `${affectedFees.length} fee(s) increased effective from ${effectiveMonth}.`,
+      description: `${affectedStudents.length} student fee(s) increased effective from ${effectiveMonth}.`,
     });
     setIncreaseValue("");
     setEffectiveMonth("");
@@ -270,12 +270,13 @@ export default function Settings() {
             </div>
           )}
 
-          {increaseValue && parseFloat(increaseValue) > 0 && affectedFees.length > 0 && (
+          {increaseValue && parseFloat(increaseValue) > 0 && affectedStudents.length > 0 && (
             <div>
               <Label className="mb-2 block">Preview</Label>
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Student</TableHead>
                     <TableHead>Class</TableHead>
                     <TableHead>Current Fee</TableHead>
                     <TableHead>New Fee</TableHead>
@@ -283,15 +284,16 @@ export default function Settings() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {affectedFees.map((f) => {
-                    const newAmt = getNewAmount(f.amount);
+                  {affectedStudents.map((student) => {
+                    const newAmt = getNewAmount(student.monthlyFee);
                     return (
-                      <TableRow key={f.id}>
-                        <TableCell className="font-medium">{f.classGrade}</TableCell>
-                        <TableCell>{formatPKR(f.amount)}</TableCell>
+                      <TableRow key={student.id}>
+                        <TableCell className="font-medium">{student.name}</TableCell>
+                        <TableCell>{student.classGrade}</TableCell>
+                        <TableCell>{formatPKR(student.monthlyFee)}</TableCell>
                         <TableCell className="font-semibold text-primary">{formatPKR(newAmt)}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary">+{formatPKR(newAmt - f.amount)}</Badge>
+                          <Badge variant="secondary">+{formatPKR(newAmt - student.monthlyFee)}</Badge>
                         </TableCell>
                       </TableRow>
                     );
@@ -301,7 +303,7 @@ export default function Settings() {
             </div>
           )}
 
-          <Button onClick={handleApply} disabled={affectedFees.length === 0}>
+          <Button onClick={handleApply} disabled={affectedStudents.length === 0}>
             Apply Fee Increase
           </Button>
         </CardContent>

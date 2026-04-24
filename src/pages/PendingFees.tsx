@@ -6,17 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
-import { AlertCircle, CreditCard, Download } from "lucide-react";
+import { AlertCircle, ChevronDown, CreditCard, Download } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Student } from "@/types";
-import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentMonthlyFee } from "@/lib/studentFees";
 
 export default function PendingFees() {
   const { students } = useStudents();
@@ -25,7 +28,7 @@ export default function PendingFees() {
   const { user, permissions } = useAuth();
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
-  const [selectedClass, setSelectedClass] = useState("all");
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
 
   // Payment dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -84,13 +87,28 @@ export default function PendingFees() {
     return classes;
   }, [students]);
 
-  const activeStudents = useMemo(() => {
-    let filtered = students.filter((s) => s.status === "active");
-    if (selectedClass !== "all") {
-      filtered = filtered.filter((s) => s.classGrade === selectedClass);
+  const toggleClassFilter = (className: string) => {
+    setSelectedClasses((current) =>
+      current.includes(className)
+        ? current.filter((selected) => selected !== className)
+        : [...current, className]
+    );
+  };
+
+  const classFilterLabel =
+    selectedClasses.length === 0
+      ? "All Classes"
+      : selectedClasses.length === 1
+        ? selectedClasses[0]
+        : `${selectedClasses.length} classes selected`;
+
+  const eligibleStudents = useMemo(() => {
+    let filtered = students;
+    if (selectedClasses.length > 0) {
+      filtered = filtered.filter((s) => selectedClasses.includes(s.classGrade));
     }
     return filtered;
-  }, [students, selectedClass]);
+  }, [students, selectedClasses]);
 
   const pendingData = useMemo(() => {
     const paidStudents = new Map<string, number>();
@@ -100,14 +118,12 @@ export default function PendingFees() {
         paidStudents.set(p.studentId, (paidStudents.get(p.studentId) ?? 0) + p.amountPaid);
       });
 
-    return activeStudents.map((student) => {
-      const feeStructure = fees.find(
-        (f) => f.classGrade === student.classGrade && f.feeType === "tuition"
-      );
-      const expectedFee = getProratedMonthlyAmount(
-        feeStructure?.amount ?? 0,
+    return eligibleStudents.map((student) => {
+      const expectedFee = getStudentMonthlyDue(
+        getStudentMonthlyFee(student, fees),
         student.enrollmentDate,
-        selectedMonth
+        selectedMonth,
+        student.leavingDate
       );
       const paidAmount = paidStudents.get(student.id) ?? 0;
       const pendingAmount = Math.max(0, expectedFee - paidAmount);
@@ -120,10 +136,12 @@ export default function PendingFees() {
         paidAmount,
         pendingAmount,
         status,
-        prorated: isJoiningMonth(student.enrollmentDate, selectedMonth),
+        prorated:
+          isJoiningMonth(student.enrollmentDate, selectedMonth) ||
+          isLeavingMonth(student.leavingDate, selectedMonth),
       };
-    }).filter((d) => d.status !== "paid");
-  }, [activeStudents, payments, fees, selectedMonth]);
+    }).filter((d) => d.expectedFee > 0 && d.status !== "paid");
+  }, [eligibleStudents, payments, fees, selectedMonth]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
 
@@ -139,10 +157,10 @@ export default function PendingFees() {
             const monthLabel = monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
             downloadCSV(
               `pending-fees-${selectedMonth}.csv`,
-              ["Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Expected", "Paid", "Pending", "Status"],
+              ["Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Leaving Date", "Expected", "Paid", "Pending", "Status"],
               pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }) => [
                 student.name, student.studentCode, student.classGrade, student.guardianName, student.contact,
-                student.enrollmentDate, String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
+                student.enrollmentDate, student.leavingDate ?? "", String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
               ])
             );
             toast.success(`Exported ${pendingData.length} records for ${monthLabel}`);
@@ -168,17 +186,49 @@ export default function PendingFees() {
         </div>
         <div className="space-y-1">
           <label className="text-sm font-medium text-muted-foreground">Class</label>
-          <Select value={selectedClass} onValueChange={setSelectedClass}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Classes</SelectItem>
-              {classOptions.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[220px] justify-between">
+                <span className="truncate">{classFilterLabel}</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[260px] p-3">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Filter by class</p>
+                  {selectedClasses.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setSelectedClasses([])}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                  {classOptions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No classes found.</p>
+                  ) : (
+                    classOptions.map((className) => (
+                      <label
+                        key={className}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={selectedClasses.includes(className)}
+                          onCheckedChange={() => toggleClassFilter(className)}
+                        />
+                        <span>{className}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -200,7 +250,7 @@ export default function PendingFees() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Active Students</CardTitle>
           </CardHeader>
-          <CardContent><div className="text-2xl font-bold">{activeStudents.length}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold">{students.filter((s) => s.status === "active").length}</div></CardContent>
         </Card>
       </div>
 
@@ -236,6 +286,9 @@ export default function PendingFees() {
                           {student.name}
                         </Link>
                         <p className="text-xs text-muted-foreground">{student.studentCode}</p>
+                        {student.leavingDate && (
+                          <p className="text-xs text-muted-foreground">Left {student.leavingDate}</p>
+                        )}
                       </td>
                       <td className="py-3 px-2">{student.classGrade}</td>
                       <td className="py-3 px-2">{student.guardianName}</td>

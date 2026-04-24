@@ -20,7 +20,7 @@ import type { StudentPaymentSubmission } from "@/types";
 export default function SubmitPayment() {
   const { payments } = usePayments();
   const { submissions, loading, addSubmission, updateSubmission } = useStudentPaymentSubmissions();
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [open, setOpen] = useState(false);
   const [editingSubmission, setEditingSubmission] = useState<StudentPaymentSubmission | null>(null);
@@ -270,7 +270,7 @@ export default function SubmitPayment() {
                   <TableHead>Remaining After</TableHead>
                   <TableHead>Mode</TableHead>
                   <TableHead>Notes</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {permissions.canManageRoles && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -288,11 +288,13 @@ export default function SubmitPayment() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{submission.notes || "-"}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(submission)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+                    {permissions.canManageRoles && (
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(submission)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Pencil, Trash2, UserPlus } from "lucide-react";
+import { KeyRound, Pencil, Trash2, UserPlus } from "lucide-react";
 
 type AppRole = "admin" | "manager" | "user";
 type AccessLevel = "admin" | "both_edit" | "both_view" | "students_only" | "teachers_only";
@@ -119,6 +119,10 @@ export default function RoleManagement() {
   const [editingEmailUser, setEditingEmailUser] = useState<UserRole | null>(null);
   const [editEmail, setEditEmail] = useState("");
   const [updatingEmail, setUpdatingEmail] = useState(false);
+  const [editingPasswordUser, setEditingPasswordUser] = useState<UserRole | null>(null);
+  const [editPassword, setEditPassword] = useState("");
+  const [confirmEditPassword, setConfirmEditPassword] = useState("");
+  const [updatingPassword, setUpdatingPassword] = useState(false);
 
   const isAccessLevel = (value: string): value is AccessLevel =>
     value === "admin" || value === "both_edit" || value === "both_view" || value === "students_only" || value === "teachers_only";
@@ -220,6 +224,54 @@ export default function RoleManagement() {
     return body;
   };
 
+  const updateUserPassword = async (userId: string, password: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-password`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId, password }),
+    });
+
+    const body = await response.json().catch(() => null);
+    if (!response.ok || body?.error) {
+      throw new Error(body?.error || `Failed to update password (${response.status})`);
+    }
+
+    return body;
+  };
+
+  const updateUserAccess = async (userId: string, accessLevel: AccessLevel) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-access`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId, accessLevel }),
+    });
+
+    const body = await response.json().catch(() => null);
+    if (!response.ok || body?.error) {
+      throw new Error(body?.error || `Failed to update access (${response.status})`);
+    }
+
+    return body;
+  };
+
   const fetchRoles = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from("user_roles").select("*");
@@ -259,21 +311,24 @@ export default function RoleManagement() {
 
   const handleUpdateAccess = async (userId: string, accessLevel: string) => {
     if (!isAccessLevel(accessLevel)) return;
-    const permissions = getAccessPermissions(accessLevel);
-    await supabase
-      .from("user_permissions")
-      .upsert({
-        user_id: userId,
-        ...permissions,
-        can_manage_roles: accessLevel === "admin",
-        updated_at: new Date().toISOString(),
-      });
-    await supabase
-      .from("user_roles")
-      .update({ role: accessLevel === "admin" ? "admin" : "user" })
-      .eq("user_id", userId);
-    toast.success("Access updated");
-    await fetchRoles();
+    const previousRoles = roles;
+    setRoles((current) => current.map((role) => role.userId === userId ? { ...role, accessLevel } : role));
+
+    try {
+      await updateUserAccess(userId, accessLevel);
+      toast.success("Access updated");
+      await fetchRoles();
+    } catch (err) {
+      setRoles(previousRoles);
+      const message =
+        err instanceof Error && err.message === "Failed to fetch"
+          ? "Could not reach the update-user-access Edge Function. Deploy update-user-access in Supabase and disable Verify JWT."
+          : err instanceof Error
+            ? err.message
+            : "Failed to update access";
+      toast.error(message);
+      await fetchRoles();
+    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -318,6 +373,12 @@ export default function RoleManagement() {
     setEditEmail(role.email ?? "");
   };
 
+  const openEditPassword = (role: UserRole) => {
+    setEditingPasswordUser(role);
+    setEditPassword("");
+    setConfirmEditPassword("");
+  };
+
   const handleUpdateEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEmailUser || !editEmail.trim()) return;
@@ -339,6 +400,40 @@ export default function RoleManagement() {
       toast.error(message);
     } finally {
       setUpdatingEmail(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPasswordUser) return;
+
+    if (editPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+
+    if (editPassword !== confirmEditPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      await updateUserPassword(editingPasswordUser.userId, editPassword);
+      toast.success("Password updated");
+      setEditingPasswordUser(null);
+      setEditPassword("");
+      setConfirmEditPassword("");
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message === "Failed to fetch"
+          ? "Could not reach the update-user-password Edge Function. Deploy update-user-password in Supabase and disable Verify JWT."
+          : err instanceof Error
+            ? err.message
+            : "Failed to update password";
+      toast.error(message);
+    } finally {
+      setUpdatingPassword(false);
     }
   };
 
@@ -482,6 +577,14 @@ export default function RoleManagement() {
                       </Select>
                     </TableCell>
                     <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditPassword(r)}
+                        title="Change password"
+                      >
+                        <KeyRound className="h-4 w-4" />
+                      </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" disabled={deletingUserId === r.userId}>
@@ -560,6 +663,54 @@ export default function RoleManagement() {
             </div>
             <Button type="submit" className="w-full" disabled={updatingEmail}>
               {updatingEmail ? "Updating..." : "Update Email"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editingPasswordUser)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingPasswordUser(null);
+            setEditPassword("");
+            setConfirmEditPassword("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change User Password</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdatePassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>User</Label>
+              <Input value={editingPasswordUser?.email ?? editingPasswordUser?.userId ?? ""} readOnly className="bg-muted" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>New Password</Label>
+              <Input
+                type="password"
+                value={editPassword}
+                onChange={(e) => setEditPassword(e.target.value)}
+                placeholder="Min 6 characters"
+                required
+                minLength={6}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Confirm Password</Label>
+              <Input
+                type="password"
+                value={confirmEditPassword}
+                onChange={(e) => setConfirmEditPassword(e.target.value)}
+                placeholder="Re-enter password"
+                required
+                minLength={6}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={updatingPassword}>
+              {updatingPassword ? "Updating..." : "Update Password"}
             </Button>
           </form>
         </DialogContent>

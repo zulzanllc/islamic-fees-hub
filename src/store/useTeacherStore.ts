@@ -33,6 +33,20 @@ export function useTeachers() {
     await fetchTeachers();
   }, [fetchTeachers]);
 
+  const bulkAddTeachers = useCallback(async (teachers: Omit<Teacher, "id">[]) => {
+    const rows = teachers.map((teacher) => ({
+      name: teacher.name,
+      contact: teacher.contact,
+      cnic: teacher.cnic,
+      joining_date: teacher.joiningDate,
+      status: teacher.status,
+      monthly_salary: teacher.monthlySalary,
+    }));
+    const { error } = await supabase.from("teachers").insert(rows as any);
+    await fetchTeachers();
+    return error;
+  }, [fetchTeachers]);
+
   const updateTeacher = useCallback(async (id: string, updates: Partial<Teacher>) => {
     const mapped: Record<string, unknown> = {};
     if (updates.name !== undefined) mapped.name = updates.name;
@@ -50,7 +64,7 @@ export function useTeachers() {
     await fetchTeachers();
   }, [fetchTeachers]);
 
-  return { teachers, loading, addTeacher, updateTeacher, deleteTeacher };
+  return { teachers, loading, addTeacher, bulkAddTeachers, updateTeacher, deleteTeacher };
 }
 
 export function useTeacherLoans() {
@@ -90,9 +104,16 @@ export function useTeacherLoans() {
 
   const updateLoan = useCallback(async (id: string, updates: Partial<TeacherLoan>) => {
     const mapped: Record<string, unknown> = {};
+    if (updates.teacherId !== undefined) mapped.teacher_id = updates.teacherId;
+    if (updates.amount !== undefined) mapped.amount = updates.amount;
     if (updates.remaining !== undefined) mapped.remaining = updates.remaining;
+    if (updates.dateIssued !== undefined) mapped.date_issued = updates.dateIssued;
     if (updates.status !== undefined) mapped.status = updates.status;
     if (updates.notes !== undefined) mapped.notes = updates.notes;
+    if (updates.repaymentType !== undefined) mapped.repayment_type = updates.repaymentType;
+    if (updates.repaymentMonth !== undefined) mapped.repayment_month = updates.repaymentMonth;
+    if (updates.repaymentPercentage !== undefined) mapped.repayment_percentage = updates.repaymentPercentage;
+    if (updates.repaymentAmount !== undefined) mapped.repayment_amount = updates.repaymentAmount;
     await supabase.from("teacher_loans").update(mapped).eq("id", id);
     await fetchLoans();
   }, [fetchLoans]);
@@ -115,6 +136,7 @@ export function useTeacherSalaries() {
         datePaid: s.date_paid, notes: s.notes,
         paymentMode: s.payment_mode || "cash",
         receiptUrl: s.receipt_url || "",
+        proofImageUrl: s.proof_image_url || "",
         customAmount: Number(s.custom_amount || 0),
       })));
     }
@@ -130,12 +152,36 @@ export function useTeacherSalaries() {
       net_paid: salary.netPaid, date_paid: salary.datePaid, notes: salary.notes,
       payment_mode: salary.paymentMode || "cash",
       receipt_url: salary.receiptUrl || "",
+      proof_image_url: salary.proofImageUrl || "",
       custom_amount: salary.customAmount || 0,
     } as any);
     await fetchSalaries();
   }, [fetchSalaries]);
 
-  return { salaries, loading, addSalary };
+  const updateSalary = useCallback(async (id: string, updates: Partial<TeacherSalary>) => {
+    const mapped: Record<string, unknown> = {};
+    if (updates.baseSalary !== undefined) mapped.base_salary = updates.baseSalary;
+    if (updates.loanDeduction !== undefined) mapped.loan_deduction = updates.loanDeduction;
+    if (updates.otherDeduction !== undefined) mapped.other_deduction = updates.otherDeduction;
+    if (updates.netPaid !== undefined) mapped.net_paid = updates.netPaid;
+    if (updates.datePaid !== undefined) mapped.date_paid = updates.datePaid;
+    if (updates.notes !== undefined) mapped.notes = updates.notes;
+    if (updates.paymentMode !== undefined) mapped.payment_mode = updates.paymentMode;
+    if (updates.receiptUrl !== undefined) mapped.receipt_url = updates.receiptUrl;
+    if (updates.proofImageUrl !== undefined) mapped.proof_image_url = updates.proofImageUrl;
+    if (updates.customAmount !== undefined) mapped.custom_amount = updates.customAmount;
+    const { error } = await supabase.from("teacher_salaries").update(mapped).eq("id", id);
+    if (!error) await fetchSalaries();
+    return error;
+  }, [fetchSalaries]);
+
+  const deleteSalary = useCallback(async (id: string) => {
+    const { error } = await supabase.from("teacher_salaries").delete().eq("id", id);
+    if (!error) await fetchSalaries();
+    return error;
+  }, [fetchSalaries]);
+
+  return { salaries, loading, addSalary, updateSalary, deleteSalary };
 }
 
 export function useTeacherAttendance() {

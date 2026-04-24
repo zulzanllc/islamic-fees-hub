@@ -26,6 +26,7 @@ interface CsvStudent {
   classGrade: string;
   enrollmentDate: string;
   status: "active" | "inactive";
+  monthlyFee: number;
   studentCode?: string;
 }
 
@@ -99,6 +100,7 @@ export default function StudentCsvImport({ onImport }: Props) {
       const dateIdx = header.findIndex((h) => h.includes("joining") || h.includes("enrollment") || h.includes("date") || h.includes("admission"));
       const statusIdx = header.findIndex((h) => h.includes("status"));
       const codeIdx = header.findIndex((h) => h.includes("code") || h.includes("id") || h.includes("roll"));
+      const monthlyFeeIdx = header.findIndex((h) => h.includes("monthlyfee") || h.includes("tuitionfee") || h === "fee");
 
       if (nameIdx === -1) {
         setErrors(["Could not find a 'Name' column in the CSV header."]);
@@ -147,6 +149,7 @@ export default function StudentCsvImport({ onImport }: Props) {
 
         const status = statusIdx !== -1 && cols[statusIdx]?.trim().toLowerCase() === "inactive" ? "inactive" : "active";
         const studentCode = codeIdx !== -1 ? cols[codeIdx]?.trim() || "" : "";
+        const monthlyFee = monthlyFeeIdx !== -1 ? Number(cols[monthlyFeeIdx]?.replace(/,/g, "") || 0) : 0;
 
         students.push({
           name,
@@ -155,6 +158,7 @@ export default function StudentCsvImport({ onImport }: Props) {
           classGrade: matchedGrade,
           enrollmentDate,
           status,
+          monthlyFee: Number.isFinite(monthlyFee) ? monthlyFee : 0,
           ...(studentCode ? { studentCode } : {}),
         });
       }
@@ -190,7 +194,7 @@ export default function StudentCsvImport({ onImport }: Props) {
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <p className="text-sm text-muted-foreground">
-            Upload a CSV file with columns: <strong>Name</strong> (required), <strong>Class/Grade</strong> (required), Guardian Name, Contact, Joining Date, Status, Student Code.
+            Upload a CSV file with columns: <strong>Name</strong> (required), <strong>Class/Grade</strong> (required), Monthly Fee, Guardian Name, Contact, Joining Date, Status, Student Code.
           </p>
           <input
             ref={fileRef}
@@ -228,6 +232,7 @@ export default function StudentCsvImport({ onImport }: Props) {
                       <TableHead>Name</TableHead>
                       <TableHead>Guardian</TableHead>
                       <TableHead>Class</TableHead>
+                      <TableHead>Monthly Fee</TableHead>
                       <TableHead>Contact</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -238,6 +243,7 @@ export default function StudentCsvImport({ onImport }: Props) {
                         <TableCell>{s.name}</TableCell>
                         <TableCell>{s.guardianName}</TableCell>
                         <TableCell>{s.classGrade}</TableCell>
+                        <TableCell>{s.monthlyFee || "-"}</TableCell>
                         <TableCell>{s.contact}</TableCell>
                       </TableRow>
                     ))}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +21,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -29,16 +40,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Download, FileText, Search, Pencil } from "lucide-react";
+import { Plus, Download, FileText, Search, Pencil, Trash2 } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
-import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentMonthlyFee } from "@/lib/studentFees";
+import { toast } from "sonner";
+import ProofUpload from "@/components/ProofUpload";
 
 export default function Payments() {
   const { students } = useStudents();
-  const { payments, addPayment, updatePayment } = usePayments();
+  const { payments, addPayment, updatePayment, deletePayment } = usePayments();
   const { fees } = useFeeStructures();
   const { user, permissions } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -58,27 +72,97 @@ export default function Payments() {
     feeMonth: currentMonth,
     paymentMode: "cash",
     notes: "",
+    proofImageUrl: "",
   });
 
   const selectedStudent = students.find((s) => s.id === form.studentId);
   const selectedFee = selectedStudent
     ? fees.find((f) => f.classGrade === selectedStudent.classGrade && f.feeType === form.feeType)
     : undefined;
+  const selectedStudentMonthlyFee = getStudentMonthlyFee(selectedStudent, fees);
+  const selectedStudentPendingFees = useMemo(() => {
+    if (!selectedStudent || selectedStudentMonthlyFee <= 0) return [];
+
+    const enrollmentDate = new Date(`${selectedStudent.enrollmentDate}T00:00:00`);
+    if (Number.isNaN(enrollmentDate.getTime())) return [];
+
+    const monthCursor = new Date(enrollmentDate.getFullYear(), enrollmentDate.getMonth(), 1);
+    const thisMonth = new Date();
+    const currentMonthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+    const leavingDate = selectedStudent.leavingDate
+      ? new Date(`${selectedStudent.leavingDate}T00:00:00`)
+      : null;
+    const feeEndMonth =
+      leavingDate && !Number.isNaN(leavingDate.getTime()) && leavingDate < currentMonthStart
+        ? new Date(leavingDate.getFullYear(), leavingDate.getMonth(), 1)
+        : currentMonthStart;
+    const pendingMonths: Array<{ month: string; expected: number; paid: number; pending: number }> = [];
+
+    while (monthCursor <= feeEndMonth) {
+      const month = format(monthCursor, "yyyy-MM");
+      const expected = getStudentMonthlyDue(
+        selectedStudentMonthlyFee,
+        selectedStudent.enrollmentDate,
+        month,
+        selectedStudent.leavingDate
+      );
+      const paid = payments
+        .filter((payment) => payment.studentId === selectedStudent.id && payment.feeType === "tuition" && payment.feeMonth === month)
+        .reduce((sum, payment) => sum + payment.amountPaid, 0);
+      const pending = Math.max(0, expected - paid);
+
+      if (pending > 0) {
+        pendingMonths.push({ month, expected, paid, pending });
+      }
+      monthCursor.setMonth(monthCursor.getMonth() + 1);
+    }
+
+    return pendingMonths;
+    }, [selectedStudent, selectedStudentMonthlyFee, payments]);
+  const nextPendingFee = selectedStudentPendingFees[0];
+  const pendingMonthsCount = selectedStudentPendingFees.length;
+  const fullPaymentRequired = form.feeType === "tuition" && pendingMonthsCount <= 1 && Boolean(nextPendingFee);
+  const pendingPaymentMessage =
+    form.feeType === "tuition" && selectedStudent
+      ? pendingMonthsCount === 0
+        ? "No pending tuition payment found for this student."
+        : pendingMonthsCount === 1
+          ? "Only 1 month pending — full payment required."
+          : `${pendingMonthsCount} months pending — partial payment allowed.`
+      : "";
   const expectedAmount =
-    selectedStudent && selectedFee
+    selectedStudent
       ? form.feeType === "tuition"
-        ? getProratedMonthlyAmount(selectedFee.amount, selectedStudent.enrollmentDate, form.feeMonth)
-        : selectedFee.amount
+        ? nextPendingFee?.pending ?? getStudentMonthlyDue(selectedStudentMonthlyFee, selectedStudent.enrollmentDate, form.feeMonth, selectedStudent.leavingDate)
+        : selectedFee?.amount ?? 0
       : 0;
   const isProrated =
     Boolean(selectedStudent) &&
     form.feeType === "tuition" &&
-    isJoiningMonth(selectedStudent?.enrollmentDate ?? "", form.feeMonth);
+    (isJoiningMonth(selectedStudent?.enrollmentDate ?? "", form.feeMonth) ||
+      isLeavingMonth(selectedStudent?.leavingDate, form.feeMonth));
 
   useEffect(() => {
-    if (editingPaymentId || !form.studentId || expectedAmount <= 0) return;
-    setForm((current) => ({ ...current, amountPaid: expectedAmount }));
-  }, [editingPaymentId, form.studentId, form.feeType, form.feeMonth, expectedAmount]);
+    if (editingPaymentId || !form.studentId) return;
+
+    if (form.feeType === "tuition") {
+      if (!nextPendingFee) {
+        setForm((current) => ({ ...current, amountPaid: 0, feeMonth: currentMonth }));
+        return;
+      }
+
+      setForm((current) => ({
+        ...current,
+        feeMonth: nextPendingFee.month,
+        amountPaid: nextPendingFee.pending,
+      }));
+      return;
+    }
+
+    if (expectedAmount > 0) {
+      setForm((current) => ({ ...current, amountPaid: expectedAmount, feeMonth: currentMonth }));
+    }
+  }, [editingPaymentId, form.studentId, form.feeType, nextPendingFee?.month, nextPendingFee?.pending, expectedAmount, currentMonth]);
 
   const resetForm = () => {
     setForm({
@@ -89,6 +173,7 @@ export default function Payments() {
       feeMonth: currentMonth,
       paymentMode: "cash",
       notes: "",
+      proofImageUrl: "",
     });
     setEditingPaymentId(null);
     setStudentSearch("");
@@ -96,6 +181,10 @@ export default function Payments() {
 
   const handleSubmit = async () => {
     if (!form.studentId || form.amountPaid <= 0) return;
+    if (form.paymentMode === "online" && !form.proofImageUrl) {
+      toast.error("Please upload payment proof for online payment");
+      return;
+    }
     if (editingPaymentId) {
       await updatePayment(editingPaymentId, {
         ...form,
@@ -123,16 +212,25 @@ export default function Payments() {
       feeMonth: payment.feeMonth,
       paymentMode: payment.paymentMode,
       notes: payment.notes,
+      proofImageUrl: payment.proofImageUrl,
     });
     setStudentSearch(getStudentName(payment.studentId));
     setDialogOpen(true);
+  };
+
+  const handleDeletePayment = async (paymentId: string) => {
+    const error = await deletePayment(paymentId);
+    if (error) {
+      toast.error("Failed to delete payment");
+      return;
+    }
+    toast.success("Payment deleted");
   };
 
   const getStudentName = (id: string) =>
     students.find((s) => s.id === id)?.name ?? "Unknown";
   const getStudent = (id: string) => students.find((s) => s.id === id);
   const filteredStudentsForSelect = students
-    .filter((student) => student.status === "active" || student.id === form.studentId)
     .filter((student) => {
       const query = studentSearch.trim().toLowerCase();
       if (!query) return true;
@@ -295,7 +393,7 @@ export default function Payments() {
                     ) : (
                       filteredStudentsForSelect.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
-                          {s.name} ({s.classGrade}){s.studentCode ? ` - ${s.studentCode}` : ""}
+                          {s.name} ({s.classGrade}){s.studentCode ? ` - ${s.studentCode}` : ""}{s.leavingDate ? ` - Left ${s.leavingDate}` : ""}
                         </SelectItem>
                       ))
                     )}
@@ -325,6 +423,9 @@ export default function Payments() {
                   type="number"
                   min={0}
                   value={form.amountPaid || ""}
+                  readOnly={fullPaymentRequired}
+                  disabled={fullPaymentRequired}
+                  className={fullPaymentRequired ? "bg-muted" : ""}
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -332,20 +433,33 @@ export default function Payments() {
                     })
                   }
                 />
-                {selectedStudent && selectedFee && (
+                {selectedStudent && (form.feeType === "tuition" ? selectedStudentMonthlyFee > 0 : Boolean(selectedFee)) && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Suggested {form.feeType === "tuition" ? "tuition" : "fee"}: {formatPKR(expectedAmount)}
-                    {isProrated ? " (prorated from joining date)" : ""}
+                    {isProrated ? " (prorated for joining/leaving date)" : ""}
+                  </p>
+                )}
+                {pendingPaymentMessage && (
+                  <p className="mt-1 text-xs font-medium text-primary">
+                    {pendingPaymentMessage}
                   </p>
                 )}
               </div>
               <div>
-                <Label>Fee Month *</Label>
+                <Label>{form.feeType === "tuition" ? "Fee Month (auto-calculated)" : "Fee Month *"}</Label>
                 <Input
                   type="month"
                   value={form.feeMonth}
+                  readOnly={form.feeType === "tuition"}
+                  disabled={form.feeType === "tuition"}
+                  className={form.feeType === "tuition" ? "bg-muted" : ""}
                   onChange={(e) => setForm({ ...form, feeMonth: e.target.value })}
                 />
+                {form.feeType === "tuition" && nextPendingFee && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Automatically selected: {formatFeeMonth(nextPendingFee.month)}
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Payment Date</Label>
@@ -372,6 +486,13 @@ export default function Payments() {
                   </SelectContent>
                 </Select>
               </div>
+              {form.paymentMode === "online" && (
+                <ProofUpload
+                  value={form.proofImageUrl}
+                  onChange={(url) => setForm({ ...form, proofImageUrl: url })}
+                  required
+                />
+              )}
               <div>
                 <Label>Notes</Label>
                 <Textarea
@@ -518,6 +639,37 @@ export default function Payments() {
                       >
                         <FileText className="h-4 w-4" />
                       </Button>
+                      {permissions.canManageRoles && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              title="Delete Payment"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Payment</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete receipt {p.receiptNumber} for {getStudentName(p.studentId)} ({formatPKR(p.amountPaid)}). This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDeletePayment(p.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

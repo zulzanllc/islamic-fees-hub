@@ -120,6 +120,8 @@ export type Database = {
           enrollment_date: string
           guardian_name: string
           id: string
+          leaving_date: string | null
+          monthly_fee: number
           name: string
           status: string
           student_code: string
@@ -131,6 +133,8 @@ export type Database = {
           enrollment_date?: string
           guardian_name?: string
           id?: string
+          leaving_date?: string | null
+          monthly_fee?: number
           name: string
           status?: string
           student_code?: string
@@ -142,6 +146,8 @@ export type Database = {
           enrollment_date?: string
           guardian_name?: string
           id?: string
+          leaving_date?: string | null
+          monthly_fee?: number
           name?: string
           status?: string
           student_code?: string
