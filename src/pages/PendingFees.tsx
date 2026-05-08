@@ -18,7 +18,7 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Student } from "@/types";
-import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, getStudentTotalDueThroughMonth, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 
 export default function PendingFees() {
@@ -32,14 +32,14 @@ export default function PendingFees() {
 
   // Payment dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentStudent, setPaymentStudent] = useState<{ student: Student; pendingAmount: number } | null>(null);
+  const [paymentStudent, setPaymentStudent] = useState<{ student: Student; pendingAmount: number; feeMonth: string } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("cash");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const openPaymentDialog = (student: Student, pendingAmount: number) => {
-    setPaymentStudent({ student, pendingAmount });
+  const openPaymentDialog = (student: Student, pendingAmount: number, feeMonth: string) => {
+    setPaymentStudent({ student, pendingAmount, feeMonth });
     setPaymentAmount(String(pendingAmount));
     setPaymentMode("cash");
     setPaymentNotes("");
@@ -60,7 +60,7 @@ export default function PendingFees() {
         feeType: "tuition",
         amountPaid: amount,
         date: format(new Date(), "yyyy-MM-dd"),
-        feeMonth: selectedMonth,
+        feeMonth: paymentStudent.feeMonth,
         notes: paymentNotes,
         collectedBy: user?.id ?? null,
         paymentMode,
@@ -113,17 +113,45 @@ export default function PendingFees() {
   const pendingData = useMemo(() => {
     const paidStudents = new Map<string, number>();
     payments
-      .filter((p) => p.feeMonth === selectedMonth)
+      .filter((p) => p.feeType === "tuition" && p.feeMonth <= selectedMonth)
       .forEach((p) => {
         paidStudents.set(p.studentId, (paidStudents.get(p.studentId) ?? 0) + p.amountPaid);
       });
 
+    const getNextPendingFee = (student: Student) => {
+      const monthlyFee = getStudentMonthlyFee(student, fees);
+      const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0);
+      const feeStartDate = openingInstallments[0]
+        ? new Date(`${openingInstallments[0].month}-01T00:00:00`)
+        : getStudentFeeStartDate(student.enrollmentDate);
+      if (!feeStartDate) return null;
+
+      const cursor = new Date(feeStartDate.getFullYear(), feeStartDate.getMonth(), 1);
+      const [selectedYear, selectedMonthNumber] = selectedMonth.split("-").map(Number);
+      const end = new Date(selectedYear, selectedMonthNumber - 1, 1);
+
+      while (cursor <= end) {
+        const month = format(cursor, "yyyy-MM");
+        const openingInstallment = openingInstallments.find((installment) => installment.month === month);
+        const expected = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, month, student.leavingDate);
+        const paid = payments
+          .filter((payment) => payment.studentId === student.id && payment.feeType === "tuition" && payment.feeMonth === month)
+          .reduce((sum, payment) => sum + payment.amountPaid, 0);
+        const pending = Math.max(0, expected - paid);
+        if (pending > 0) return { month, pending };
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      return null;
+    };
+
     return eligibleStudents.map((student) => {
-      const expectedFee = getStudentMonthlyDue(
+      const expectedFee = getStudentTotalDueThroughMonth(
         getStudentMonthlyFee(student, fees),
         student.enrollmentDate,
         selectedMonth,
-        student.leavingDate
+        student.leavingDate,
+        student.openingDueAmount ?? 0
       );
       const paidAmount = paidStudents.get(student.id) ?? 0;
       const pendingAmount = Math.max(0, expectedFee - paidAmount);
@@ -136,6 +164,7 @@ export default function PendingFees() {
         paidAmount,
         pendingAmount,
         status,
+        nextPendingFee: getNextPendingFee(student),
         prorated:
           isJoiningMonth(student.enrollmentDate, selectedMonth) ||
           isLeavingMonth(student.leavingDate, selectedMonth),
@@ -279,7 +308,7 @@ export default function PendingFees() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated }) => (
+                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated, nextPendingFee }) => (
                     <tr key={student.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-2">
                         <Link to={`/students/${student.id}`} className="font-medium text-primary hover:underline">
@@ -307,7 +336,7 @@ export default function PendingFees() {
                       </td>
                       {permissions.canCollectFees && (
                         <td className="py-3 px-2 text-center">
-                          <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, pendingAmount)}>
+                          <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, nextPendingFee?.pending ?? pendingAmount, nextPendingFee?.month ?? selectedMonth)}>
                             <CreditCard className="h-3 w-3 mr-1" /> Collect
                           </Button>
                         </td>

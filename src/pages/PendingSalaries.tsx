@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { useTeachers, useTeacherSalaries, useTeacherLoans } from "@/store/useTeacherStore";
+import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherSalarySettings } from "@/store/useTeacherStore";
 import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Teacher } from "@/types";
 import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
 import { useAuth } from "@/hooks/useAuth";
 import ProofUpload from "@/components/ProofUpload";
 
@@ -24,6 +25,7 @@ export default function PendingSalaries() {
   const { teachers } = useTeachers();
   const { salaries, addSalary } = useTeacherSalaries();
   const { loans } = useTeacherLoans();
+  const { settings } = useTeacherSalarySettings();
   const { advances } = useTeacherAdvances();
   const { permissions } = useAuth();
   const teachersOnlyAccess =
@@ -36,16 +38,45 @@ export default function PendingSalaries() {
 
   // Payment dialog state
   const [payOpen, setPayOpen] = useState(false);
-  const [payTeacher, setPayTeacher] = useState<{ teacher: Teacher; pending: number; loanDeduction: number; baseSalary: number } | null>(null);
+  const [payTeacher, setPayTeacher] = useState<{
+    teacher: Teacher;
+    pending: number;
+    loanDeduction: number;
+    baseSalary: number;
+    advanceTaken: number;
+    expectedSalary: number;
+    paidAmount: number;
+    prorated: boolean;
+    estCompletion: string;
+    loanBreakdown: Array<{
+      id: string;
+      amount: number;
+      modeLabel: string;
+      deduction: number;
+    }>;
+    totalLoanRemaining: number;
+  } | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMode, setPayMode] = useState("cash");
   const [payNotes, setPayNotes] = useState("");
   const [payProofUrl, setPayProofUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const openPayDialog = (teacher: Teacher, pending: number, loanDeduction: number, baseSalary: number) => {
-    setPayTeacher({ teacher, pending, loanDeduction, baseSalary });
-    setPayAmount(String(pending));
+  const openPayDialog = (teacher: Teacher, pendingDetails: NonNullable<typeof pendingData>[number]) => {
+    setPayTeacher({
+      teacher,
+      pending: pendingDetails.pendingAmount,
+      loanDeduction: pendingDetails.loanDeduction,
+      baseSalary: pendingDetails.baseSalary,
+      advanceTaken: pendingDetails.advanceTaken,
+      expectedSalary: pendingDetails.expectedSalary,
+      paidAmount: pendingDetails.paidAmount,
+      prorated: pendingDetails.prorated,
+      estCompletion: pendingDetails.estCompletion,
+      loanBreakdown: pendingDetails.loanBreakdown,
+      totalLoanRemaining: pendingDetails.totalLoanRemaining,
+    });
+    setPayAmount(String(pendingDetails.pendingAmount));
     setPayMode("cash");
     setPayNotes("");
     setPayProofUrl("");
@@ -114,12 +145,50 @@ export default function PendingSalaries() {
       });
 
     return activeTeachers.map((teacher) => {
-      const baseSalary = getProratedMonthlyAmount(
+      const effectiveMonthlySalary = getEffectiveTeacherMonthlySalary(
         teacher.monthlySalary,
+        teacher.joiningDate,
+        selectedMonth,
+        settings.annualIncrementPercentage
+      );
+      const baseSalary = getProratedMonthlyAmount(
+        effectiveMonthlySalary,
         teacher.joiningDate,
         selectedMonth
       );
       const activeLoans = loans.filter((l) => l.teacherId === teacher.id && l.status === "active");
+      const loanBreakdown = activeLoans.map((loan) => {
+        if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
+          return {
+            id: loan.id,
+            amount: loan.amount,
+            modeLabel: `${loan.repaymentPercentage}% of salary`,
+            deduction: Math.min((baseSalary * loan.repaymentPercentage) / 100, loan.remaining),
+          };
+        }
+        if (loan.repaymentType === "custom_amount" && loan.repaymentAmount) {
+          return {
+            id: loan.id,
+            amount: loan.amount,
+            modeLabel: `Fixed ${formatPKR(loan.repaymentAmount)}/month`,
+            deduction: Math.min(loan.repaymentAmount, Math.min(loan.remaining, baseSalary)),
+          };
+        }
+        if (loan.repaymentType === "specific_month") {
+          return {
+            id: loan.id,
+            amount: loan.amount,
+            modeLabel: `Full return in ${loan.repaymentMonth}`,
+            deduction: loan.repaymentMonth === selectedMonth ? Math.min(loan.remaining, baseSalary) : 0,
+          };
+        }
+        return {
+          id: loan.id,
+          amount: loan.amount,
+          modeLabel: "Advance salary (manual)",
+          deduction: 0,
+        };
+      });
       const loanDeduction = activeLoans.reduce((sum, l) => {
         if (l.repaymentType === "percentage" && l.repaymentPercentage) {
           return sum + (baseSalary * l.repaymentPercentage) / 100;
@@ -145,17 +214,18 @@ export default function PendingSalaries() {
       const pendingAmount = Math.max(0, expectedSalary - paidAmount);
       const status: "paid" | "partial" | "unpaid" =
         paidAmount >= expectedSalary ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
+      const totalLoanRemaining = activeLoans.reduce((sum, loan) => sum + loan.remaining, 0);
 
       // Estimate loan completion
       let estCompletion = "—";
       if (activeLoans.length > 0) {
-        const totalRemaining = activeLoans.reduce((s, l) => s + l.remaining, 0);
+        const totalRemaining = totalLoanRemaining;
         if (totalRemaining <= 0) {
           estCompletion = "Completed";
         } else {
           const totalMonthlyDeduction = activeLoans.reduce((s, l) => {
             if (l.repaymentType === "percentage" && l.repaymentPercentage) {
-              return s + teacher.monthlySalary * (l.repaymentPercentage / 100);
+              return s + effectiveMonthlySalary * (l.repaymentPercentage / 100);
             }
             if (l.repaymentType === "custom_amount" && l.repaymentAmount) {
               return s + l.repaymentAmount;
@@ -195,9 +265,11 @@ export default function PendingSalaries() {
         status,
         estCompletion,
         prorated: isJoiningMonth(teacher.joiningDate, selectedMonth),
+        loanBreakdown,
+        totalLoanRemaining,
       };
     }).filter((d) => d.status !== "paid");
-  }, [activeTeachers, salaries, loans, advances, selectedMonth]);
+  }, [activeTeachers, salaries, loans, advances, selectedMonth, settings.annualIncrementPercentage]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
 
@@ -271,26 +343,28 @@ export default function PendingSalaries() {
           {pendingData.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">All teachers have been paid for this month! 🎉</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-h-[70vh] overflow-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Teacher</th>
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Contact</th>
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Joining Date</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Base Salary</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Loan Ded.</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Advance Ded.</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Est. Completion</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Net Expected</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
-                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
-                     <th className="text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
-                     {permissions.canPaySalaries && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
+                    <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Teacher</th>
+                    <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Contact</th>
+                    <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Joining Date</th>
+                    <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Base Salary</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Loan Ded.</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Advance Ded.</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Est. Completion</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Net Expected</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
+                     <th className="sticky top-0 z-10 bg-background text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
+                     {permissions.canPaySalaries && <th className="sticky top-0 z-10 bg-background text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
-                   {pendingData.map(({ teacher, baseSalary, loanDeduction, advanceTaken, expectedSalary, paidAmount, pendingAmount, status, estCompletion, prorated }) => (
+                   {pendingData.map((details) => {
+                     const { teacher, baseSalary, loanDeduction, advanceTaken, expectedSalary, paidAmount, pendingAmount, status, estCompletion, prorated } = details;
+                     return (
                      <tr key={teacher.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                        <td className="py-3 px-2">
                          {teachersOnlyAccess ? (
@@ -321,13 +395,13 @@ export default function PendingSalaries() {
                       </td>
                       {permissions.canPaySalaries && (
                         <td className="py-3 px-2 text-center">
-                          <Button size="sm" variant="outline" onClick={() => openPayDialog(teacher, pendingAmount, loanDeduction, baseSalary)}>
+                          <Button size="sm" variant="outline" onClick={() => openPayDialog(teacher, details)}>
                             <Wallet className="h-3 w-3 mr-1" /> Pay
                           </Button>
                         </td>
                       )}
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -337,7 +411,7 @@ export default function PendingSalaries() {
 
       {/* Pay Salary Dialog */}
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Pay Salary</DialogTitle>
             <DialogDescription>
@@ -345,6 +419,62 @@ export default function PendingSalaries() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {payTeacher && (
+              <div className="bg-muted p-3 rounded-md text-sm space-y-2">
+                <p>
+                  Base Salary: <strong>{formatPKR(payTeacher.baseSalary)}</strong>
+                  {payTeacher.prorated && (
+                    <span className="text-xs text-muted-foreground"> (prorated from joining date)</span>
+                  )}
+                </p>
+                <p>
+                  Loan Deduction: <strong className="text-destructive">
+                    {payTeacher.loanDeduction > 0 ? `-${formatPKR(payTeacher.loanDeduction)}` : "—"}
+                  </strong>
+                </p>
+                <p>
+                  Advance Already Paid: <strong className="text-destructive">
+                    {payTeacher.advanceTaken > 0 ? `-${formatPKR(payTeacher.advanceTaken)}` : "—"}
+                  </strong>
+                </p>
+                {payTeacher.loanBreakdown.length > 0 && (
+                  <div className="space-y-1 border-t border-border pt-2 mt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Loan Breakdown:</p>
+                    {payTeacher.loanBreakdown.map((loan) => (
+                      <div key={loan.id} className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">
+                          {formatPKR(loan.amount)} loan — <span className="italic">{loan.modeLabel}</span>
+                        </span>
+                        <span className="text-destructive font-medium">
+                          {loan.deduction > 0 ? `-${formatPKR(loan.deduction)}` : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {payTeacher.loanBreakdown.length > 0 && (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Outstanding loans: {formatPKR(payTeacher.totalLoanRemaining)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Estimated completion: {payTeacher.estCompletion}
+                    </p>
+                  </>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-border pt-2 mt-1">
+                  <p>
+                    Net Expected: <strong>{formatPKR(payTeacher.expectedSalary)}</strong>
+                  </p>
+                  <p>
+                    Already Paid: <strong>{formatPKR(payTeacher.paidAmount)}</strong>
+                  </p>
+                  <p>
+                    Remaining Pending: <strong className="text-destructive">{formatPKR(payTeacher.pending)}</strong>
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Amount (PKR)</Label>
               <Input

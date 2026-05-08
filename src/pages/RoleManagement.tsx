@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { KeyRound, Pencil, Trash2, UserPlus } from "lucide-react";
+import { writeAppLog } from "@/lib/appLogger";
 
 type AppRole = "admin" | "manager" | "user";
 type AccessLevel = "admin" | "both_edit" | "both_view" | "students_only" | "teachers_only";
@@ -316,6 +317,14 @@ export default function RoleManagement() {
 
     try {
       await updateUserAccess(userId, accessLevel);
+      await writeAppLog({
+        source: "admin",
+        action: "user_access_updated",
+        entityType: "auth_user",
+        entityId: userId,
+        message: `Updated user access to ${accessLevel}`,
+        details: { accessLevel },
+      });
       toast.success("Access updated");
       await fetchRoles();
     } catch (err) {
@@ -337,6 +346,14 @@ export default function RoleManagement() {
     setCreating(true);
     try {
       await createUser();
+      await writeAppLog({
+        source: "admin",
+        action: "user_created",
+        entityType: "auth_user",
+        actorEmail: newEmail,
+        message: `Created user ${newEmail}`,
+        details: { accessLevel: newAccessLevel },
+      });
       toast.success(`User ${newEmail} created successfully`);
       setNewEmail("");
       setNewPassword("");
@@ -353,6 +370,14 @@ export default function RoleManagement() {
     setDeletingUserId(userId);
     try {
       await deleteUser(userId);
+      await writeAppLog({
+        source: "admin",
+        action: "user_deleted",
+        entityType: "auth_user",
+        entityId: userId,
+        actorEmail: email ?? null,
+        message: `Deleted user ${email || userId}`,
+      });
       toast.success(`User ${email || userId.slice(0, 8)} deleted`);
       await fetchRoles();
     } catch (err) {
@@ -386,6 +411,14 @@ export default function RoleManagement() {
     setUpdatingEmail(true);
     try {
       await updateUserEmail(editingEmailUser.userId, editEmail.trim());
+      await writeAppLog({
+        source: "admin",
+        action: "user_email_updated",
+        entityType: "auth_user",
+        entityId: editingEmailUser.userId,
+        actorEmail: editEmail.trim(),
+        message: `Updated user email to ${editEmail.trim()}`,
+      });
       toast.success("Email updated");
       setEditingEmailUser(null);
       setEditEmail("");
@@ -420,6 +453,13 @@ export default function RoleManagement() {
     setUpdatingPassword(true);
     try {
       await updateUserPassword(editingPasswordUser.userId, editPassword);
+      await writeAppLog({
+        source: "admin",
+        action: "user_password_updated",
+        entityType: "auth_user",
+        entityId: editingPasswordUser.userId,
+        message: "Updated user password",
+      });
       toast.success("Password updated");
       setEditingPasswordUser(null);
       setEditPassword("");

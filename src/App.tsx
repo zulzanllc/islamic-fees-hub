@@ -12,6 +12,7 @@ import Payments from "@/pages/Payments";
 import Receipts from "@/pages/Receipts";
 import Teachers from "@/pages/Teachers";
 import TeacherSalaries from "@/pages/TeacherSalaries";
+import TeacherAdvances from "@/pages/TeacherAdvances";
 import TeacherLoans from "@/pages/TeacherLoans";
 import TeacherAttendance from "@/pages/TeacherAttendance";
 import TeacherDashboard from "@/pages/TeacherDashboard";
@@ -23,8 +24,10 @@ import PendingFees from "@/pages/PendingFees";
 import SubmitPayment from "@/pages/SubmitPayment";
 import TeacherSettings from "@/pages/TeacherSettings";
 import PendingSalaries from "@/pages/PendingSalaries";
+import LogsSettings from "@/pages/LogsSettings";
 import Login from "@/pages/Login";
 import NotFound from "./pages/NotFound";
+import { ActivityMonitor } from "@/components/ActivityMonitor";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +58,7 @@ function ProtectedRoutes() {
 
   return (
     <AppLayout>
+      <ActivityMonitor />
       <Routes>
         <Route
           path="/"
@@ -90,6 +94,7 @@ function ProtectedRoutes() {
                 <Route path="/teachers" element={<Teachers />} />
                 <Route path="/teachers/:id" element={<TeacherDetail />} />
                 <Route path="/teacher-salaries" element={<TeacherSalaries />} />
+                <Route path="/teacher-advances" element={<TeacherAdvances />} />
                 <Route path="/teacher-loans" element={<TeacherLoans />} />
                 <Route path="/teacher-attendance" element={<TeacherAttendance />} />
                 <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
@@ -100,6 +105,7 @@ function ProtectedRoutes() {
         )}
 
         {permissions.canManageRoles && <Route path="/roles" element={<RoleManagement />} />}
+        {permissions.canManageRoles && <Route path="/logs" element={<LogsSettings />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppLayout>

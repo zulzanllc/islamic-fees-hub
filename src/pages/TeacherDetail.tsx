@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherAttendance } from "@/store/useTeacherStore";
+import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherAttendance, useTeacherSalarySettings } from "@/store/useTeacherStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, User, Wallet, HandCoins, Clock, Banknote } from "lucide-react";
 import { formatPKR } from "@/lib/currency";
+import { format } from "date-fns";
+import { getEffectiveTeacherMonthlySalary, getTeacherAnnualIncrementCount } from "@/lib/teacherSalary";
 
 export default function TeacherDetail() {
   const { id } = useParams<{ id: string }>();
@@ -15,13 +17,14 @@ export default function TeacherDetail() {
   const { salaries, loading: salariesLoading } = useTeacherSalaries();
   const { loans, loading: loansLoading } = useTeacherLoans();
   const { attendance, loading: attendanceLoading } = useTeacherAttendance();
+  const { settings, loading: settingsLoading } = useTeacherSalarySettings();
 
   const teacher = teachers.find((t) => t.id === id);
   const teacherSalaries = salaries.filter((s) => s.teacherId === id);
   const teacherLoans = loans.filter((l) => l.teacherId === id);
   const teacherAttendance = attendance.filter((a) => a.teacherId === id);
 
-  const loading = teachersLoading || salariesLoading || loansLoading || attendanceLoading;
+  const loading = teachersLoading || salariesLoading || loansLoading || attendanceLoading || settingsLoading;
 
   if (loading) {
     return (
@@ -48,6 +51,14 @@ export default function TeacherDetail() {
   const teacherAdvances = teacherLoans.filter((l) => l.repaymentType === "manual");
   const totalAdvanceTaken = teacherAdvances.reduce((sum, a) => sum + a.amount, 0);
   const totalAdvanceRemaining = teacherAdvances.filter(a => a.status === "active").reduce((sum, a) => sum + a.remaining, 0);
+  const currentMonth = format(new Date(), "yyyy-MM");
+  const currentEffectiveSalary = getEffectiveTeacherMonthlySalary(
+    teacher.monthlySalary,
+    teacher.joiningDate,
+    currentMonth,
+    settings.annualIncrementPercentage
+  );
+  const completedIncrements = getTeacherAnnualIncrementCount(teacher.joiningDate, currentMonth);
 
   return (
     <div className="space-y-6">
@@ -86,8 +97,13 @@ export default function TeacherDetail() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">Monthly Salary</p>
-            <p className="font-medium text-foreground">{formatPKR(teacher.monthlySalary)}</p>
+            <p className="text-xs text-muted-foreground">Current Monthly Salary</p>
+            <p className="font-medium text-foreground">{formatPKR(currentEffectiveSalary)}</p>
+            {completedIncrements > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Base {formatPKR(teacher.monthlySalary)} · {completedIncrements} increment{completedIncrements !== 1 ? "s" : ""} applied
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

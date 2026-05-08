@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useTeachers, useTeacherSalaries, useTeacherLoans } from "@/store/useTeacherStore";
+import { useState, useMemo, useEffect } from "react";
+import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherSalarySettings } from "@/store/useTeacherStore";
 import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,23 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
+import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
 import { useAuth } from "@/hooks/useAuth";
 import ProofUpload from "@/components/ProofUpload";
+import type { TeacherLoan } from "@/types";
+
+type LoanRepaymentEdit = {
+  repaymentType: TeacherLoan["repaymentType"];
+  repaymentMonth: string;
+  repaymentPercentage: number;
+  repaymentAmount: number;
+};
 
 export default function TeacherSalaries() {
   const { teachers } = useTeachers();
   const { salaries, loading, addSalary, updateSalary, deleteSalary } = useTeacherSalaries();
   const { loans, updateLoan } = useTeacherLoans();
+  const { settings } = useTeacherSalarySettings();
   const { advances } = useTeacherAdvances();
   const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
@@ -29,6 +39,7 @@ export default function TeacherSalaries() {
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterMode, setFilterMode] = useState("all");
   const [salaryTeacherSearch, setSalaryTeacherSearch] = useState("");
+  const [filterTeacherSearch, setFilterTeacherSearch] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editSalary, setEditSalary] = useState<{ id: string; otherDeduction: number; notes: string; baseSalary: number; loanDeduction: number } | null>(null);
   const [form, setForm] = useState({
@@ -42,12 +53,21 @@ export default function TeacherSalaries() {
     proofImageUrl: "",
     skipLoanDeduction: false,
   });
+  const [loanRepaymentEdits, setLoanRepaymentEdits] = useState<Record<string, LoanRepaymentEdit>>({});
 
   const selectedTeacher = teachers.find((t) => t.id === form.teacherId);
   const activeLoans = loans.filter((l) => l.teacherId === form.teacherId && l.status === "active");
   const totalLoanRemaining = activeLoans.reduce((s, l) => s + l.remaining, 0);
+  const selectedTeacherMonthlySalary = selectedTeacher
+    ? getEffectiveTeacherMonthlySalary(
+        selectedTeacher.monthlySalary,
+        selectedTeacher.joiningDate,
+        form.month,
+        settings.annualIncrementPercentage
+      )
+    : 0;
   const baseSalary = selectedTeacher
-    ? getProratedMonthlyAmount(selectedTeacher.monthlySalary, selectedTeacher.joiningDate, form.month)
+    ? getProratedMonthlyAmount(selectedTeacherMonthlySalary, selectedTeacher.joiningDate, form.month)
     : 0;
   const isBaseSalaryProrated =
     Boolean(selectedTeacher) && isJoiningMonth(selectedTeacher?.joiningDate ?? "", form.month);
@@ -55,7 +75,50 @@ export default function TeacherSalaries() {
     .filter((advance) => advance.teacherId === form.teacherId && advance.month === form.month)
     .reduce((sum, advance) => sum + advance.amount, 0);
 
-  const getScheduledDeductionForLoan = (loan: typeof activeLoans[number]) => {
+  useEffect(() => {
+    if (!open || !form.teacherId) {
+      setLoanRepaymentEdits({});
+      return;
+    }
+
+    const nextEdits: Record<string, LoanRepaymentEdit> = {};
+    loans
+      .filter((loan) => loan.teacherId === form.teacherId && loan.status === "active")
+      .forEach((loan) => {
+        nextEdits[loan.id] = {
+          repaymentType: loan.repaymentType,
+          repaymentMonth: loan.repaymentMonth ?? "",
+          repaymentPercentage: loan.repaymentPercentage ?? 0,
+          repaymentAmount: loan.repaymentAmount ?? 0,
+        };
+      });
+    setLoanRepaymentEdits(nextEdits);
+  }, [open, form.teacherId, loans]);
+
+  const updateLoanRepaymentEdit = (loanId: string, updates: Partial<LoanRepaymentEdit>) => {
+    setLoanRepaymentEdits((current) => ({
+      ...current,
+      [loanId]: {
+        ...current[loanId],
+        ...updates,
+      },
+    }));
+  };
+
+  const getLoanWithRepaymentEdit = (loan: TeacherLoan): TeacherLoan => {
+    const edit = loanRepaymentEdits[loan.id];
+    if (!edit) return loan;
+
+    return {
+      ...loan,
+      repaymentType: edit.repaymentType,
+      repaymentMonth: edit.repaymentType === "specific_month" ? edit.repaymentMonth : null,
+      repaymentPercentage: edit.repaymentType === "percentage" ? edit.repaymentPercentage : null,
+      repaymentAmount: edit.repaymentType === "custom_amount" ? edit.repaymentAmount : null,
+    };
+  };
+
+  const getScheduledDeductionForLoan = (loan: TeacherLoan) => {
     if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
       return Math.min(baseSalary * (loan.repaymentPercentage / 100), loan.remaining);
     }
@@ -68,8 +131,44 @@ export default function TeacherSalaries() {
     return 0;
   };
 
-  // Calculate loan deduction based on each loan's repayment configuration
-  const scheduledLoanDeduction = activeLoans.reduce((total, loan) => total + getScheduledDeductionForLoan(loan), 0);
+  const getLoanRepaymentLabel = (loan: TeacherLoan) => {
+    if (loan.repaymentType === "specific_month") {
+      return loan.repaymentMonth ? `Return in ${loan.repaymentMonth}` : "Return in specific month";
+    }
+    if (loan.repaymentType === "percentage") {
+      return `${loan.repaymentPercentage ?? 0}% from salary monthly`;
+    }
+    if (loan.repaymentType === "custom_amount") {
+      return `${formatPKR(loan.repaymentAmount ?? 0)} fixed monthly`;
+    }
+    return "Manual - no auto deduction";
+  };
+
+  const getLoanDeductionNote = (loan: TeacherLoan, scheduledDeduction: number) => {
+    if (scheduledDeduction > 0) return "Deducting this salary";
+    if (loan.repaymentType === "specific_month" && loan.repaymentMonth !== form.month) {
+      return `Scheduled for ${loan.repaymentMonth || "a specific month"}`;
+    }
+    if (loan.repaymentType === "manual") return "Manual repayment only";
+    return "No deduction this month";
+  };
+
+  const loanDeductionDetails = activeLoans.map((loan) => {
+    const effectiveLoan = getLoanWithRepaymentEdit(loan);
+    const scheduledDeduction = getScheduledDeductionForLoan(effectiveLoan);
+    const deduction = form.skipLoanDeduction ? 0 : scheduledDeduction;
+    return {
+      loan,
+      effectiveLoan,
+      scheduledDeduction,
+      deduction,
+      remainingAfter: Math.max(0, loan.remaining - deduction),
+      repaymentLabel: getLoanRepaymentLabel(effectiveLoan),
+      note: form.skipLoanDeduction && scheduledDeduction > 0 ? "Skipped this salary" : getLoanDeductionNote(effectiveLoan, scheduledDeduction),
+    };
+  });
+
+  const scheduledLoanDeduction = loanDeductionDetails.reduce((total, item) => total + item.scheduledDeduction, 0);
   const loanDeduction = form.skipLoanDeduction ? 0 : scheduledLoanDeduction;
 
   const netPaid = baseSalary - loanDeduction - advanceForMonth - form.otherDeduction;
@@ -80,10 +179,20 @@ export default function TeacherSalaries() {
     (t) =>
       t.status === "active" &&
       !paidTeacherIds.has(t.id) &&
-      getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth) > 0
+      getProratedMonthlyAmount(
+        getEffectiveTeacherMonthlySalary(t.monthlySalary, t.joiningDate, currentMonth, settings.annualIncrementPercentage),
+        t.joiningDate,
+        currentMonth
+      ) > 0
   );
   const pendingTeacherTotal = pendingTeachers.reduce(
-    (sum, teacher) => sum + getProratedMonthlyAmount(teacher.monthlySalary, teacher.joiningDate, currentMonth),
+    (sum, teacher) =>
+      sum +
+      getProratedMonthlyAmount(
+        getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, currentMonth, settings.annualIncrementPercentage),
+        teacher.joiningDate,
+        currentMonth
+      ),
     0
   );
 
@@ -98,24 +207,63 @@ export default function TeacherSalaries() {
       teacher.cnic.toLowerCase().includes(query)
     );
   }, [unpaidActiveTeachers, salaryTeacherSearch]);
+  const filteredSalaryHistoryTeachers = useMemo(() => {
+    const query = filterTeacherSearch.trim().toLowerCase();
+    if (!query) return teachers;
+
+    return teachers.filter((teacher) =>
+      teacher.name.toLowerCase().includes(query) ||
+      teacher.contact.toLowerCase().includes(query) ||
+      teacher.cnic.toLowerCase().includes(query)
+    );
+  }, [teachers, filterTeacherSearch]);
 
   const handleSubmit = async () => {
     if (!form.teacherId) { toast.error("Select a teacher"); return; }
     if (paidForSelectedMonth.has(form.teacherId)) { toast.error("Salary already paid for this teacher this month"); return; }
     if (form.paymentMode === "online" && !form.proofImageUrl) { toast.error("Please upload payment proof for online payment"); return; }
+    for (const item of loanDeductionDetails) {
+      const loan = item.effectiveLoan;
+      if (loan.repaymentType === "specific_month" && !loan.repaymentMonth) {
+        toast.error("Select the return month for loan repayment");
+        return;
+      }
+      if (loan.repaymentType === "percentage" && (!loan.repaymentPercentage || loan.repaymentPercentage <= 0 || loan.repaymentPercentage > 100)) {
+        toast.error("Enter a valid loan deduction percentage (1-100)");
+        return;
+      }
+      if (loan.repaymentType === "custom_amount" && (!loan.repaymentAmount || loan.repaymentAmount <= 0)) {
+        toast.error("Enter a valid loan monthly deduction amount");
+        return;
+      }
+    }
     await addSalary({
       teacherId: form.teacherId, month: form.month, baseSalary, loanDeduction: loanDeduction + advanceForMonth,
       otherDeduction: form.otherDeduction, netPaid, datePaid: form.datePaid, notes: form.notes,
       paymentMode: form.paymentMode, receiptUrl: form.receiptUrl,
       proofImageUrl: form.proofImageUrl, customAmount: 0,
     });
-    let remaining = loanDeduction;
-    for (const loan of activeLoans) {
-      if (remaining <= 0) break;
-      const deduct = Math.min(remaining, loan.remaining);
-      const newRemaining = loan.remaining - deduct;
-      await updateLoan(loan.id, { remaining: newRemaining, status: newRemaining <= 0 ? "paid" : "active" });
-      remaining -= deduct;
+    for (const item of loanDeductionDetails) {
+      const repaymentChanged =
+        item.loan.repaymentType !== item.effectiveLoan.repaymentType ||
+        item.loan.repaymentMonth !== item.effectiveLoan.repaymentMonth ||
+        item.loan.repaymentPercentage !== item.effectiveLoan.repaymentPercentage ||
+        item.loan.repaymentAmount !== item.effectiveLoan.repaymentAmount;
+
+      if (item.deduction <= 0 && !repaymentChanged) continue;
+
+      const loanUpdates: Partial<TeacherLoan> = {};
+      if (repaymentChanged) {
+        loanUpdates.repaymentType = item.effectiveLoan.repaymentType;
+        loanUpdates.repaymentMonth = item.effectiveLoan.repaymentMonth;
+        loanUpdates.repaymentPercentage = item.effectiveLoan.repaymentPercentage;
+        loanUpdates.repaymentAmount = item.effectiveLoan.repaymentAmount;
+      }
+      if (item.deduction > 0) {
+        loanUpdates.remaining = item.remainingAfter;
+        loanUpdates.status = item.remainingAfter <= 0 ? "paid" : "active";
+      }
+      await updateLoan(item.loan.id, loanUpdates);
     }
     toast.success("Salary recorded");
     setOpen(false);
@@ -125,9 +273,14 @@ export default function TeacherSalaries() {
       skipLoanDeduction: false,
     });
     setSalaryTeacherSearch("");
+    setLoanRepaymentEdits({});
   };
 
   const getTeacherName = (id: string) => teachers.find((t) => t.id === id)?.name ?? "Unknown";
+  const getAdvanceDeductionForSalary = (teacherId: string, month: string) =>
+    advances
+      .filter((advance) => advance.teacherId === teacherId && advance.month === month)
+      .reduce((sum, advance) => sum + advance.amount, 0);
 
   const printSalarySlip = (salaryId: string) => {
     const s = salaries.find((sal) => sal.id === salaryId);
@@ -139,24 +292,24 @@ export default function TeacherSalaries() {
       <html><head><title>Salary Slip</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #1a1a1a; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #1a1a1a; font-weight: 700; }
         .header { text-align: center; border-bottom: 3px double #333; padding-bottom: 15px; margin-bottom: 20px; }
         .header h1 { font-size: 22px; margin-bottom: 4px; }
-        .header p { font-size: 12px; color: #666; }
+        .header p { font-size: 12px; color: #666; font-weight: 700; }
         .slip-title { text-align: center; font-size: 16px; font-weight: bold; background: #f0f0f0; padding: 8px; margin-bottom: 20px; border-radius: 4px; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin-bottom: 20px; font-size: 13px; }
-        .info-grid .label { color: #666; }
-        .info-grid .value { font-weight: 600; }
+        .info-grid .label { color: #666; font-weight: 700; }
+        .info-grid .value { font-weight: 700; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 13px; }
-        th { background: #f5f5f5; font-weight: 600; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 13px; font-weight: 700; }
+        th { background: #f5f5f5; font-weight: 700; }
         .amount { text-align: right; }
         .deduction { color: #dc2626; }
         .net-row { background: #f0fdf4; font-weight: bold; }
         .net-row .amount { color: #16a34a; font-size: 15px; }
-        .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 12px; }
-        .sig-line { border-top: 1px solid #333; padding-top: 5px; width: 150px; text-align: center; }
-        .print-date { text-align: center; font-size: 11px; color: #999; margin-top: 30px; }
+        .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; }
+        .sig-line { border-top: 1px solid #333; padding-top: 5px; width: 150px; text-align: center; font-weight: 700; }
+        .print-date { text-align: center; font-size: 11px; color: #999; margin-top: 30px; font-weight: 700; }
         @media print { body { padding: 15px; } }
       </style></head><body>
       <div class="header">
@@ -244,6 +397,7 @@ export default function TeacherSalaries() {
             setOpen(nextOpen);
             if (!nextOpen) {
               setSalaryTeacherSearch("");
+              setLoanRepaymentEdits({});
               setForm((current) => ({ ...current, skipLoanDeduction: false }));
             }
           }}
@@ -334,33 +488,94 @@ export default function TeacherSalaries() {
                   {advanceForMonth > 0 && <p>Advance Already Paid: <strong className="text-destructive">-{formatPKR(advanceForMonth)}</strong></p>}
                   {activeLoans.length > 0 && (
                     <div className="space-y-1 border-t border-border pt-2 mt-1">
-                      <p className="text-xs font-medium text-muted-foreground">Loan Breakdown:</p>
-                      {activeLoans.map((loan) => {
-                        let deduction = 0;
-                        let modeLabel = "";
-                        if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
-                          deduction = Math.min(baseSalary * (loan.repaymentPercentage / 100), loan.remaining);
-                          modeLabel = `${loan.repaymentPercentage}% of salary`;
-                        } else if (loan.repaymentType === "custom_amount" && loan.repaymentAmount) {
-                          deduction = Math.min(loan.repaymentAmount, loan.remaining);
-                          modeLabel = `Fixed ${formatPKR(loan.repaymentAmount)}/month`;
-                        } else if (loan.repaymentType === "specific_month") {
-                          deduction = loan.repaymentMonth === form.month ? loan.remaining : 0;
-                          modeLabel = `Full return in ${loan.repaymentMonth}`;
-                        } else if (loan.repaymentType === "manual") {
-                          modeLabel = "Advance salary (manual)";
-                        }
-                        if (form.skipLoanDeduction) {
-                          deduction = 0;
-                        }
+                      <p className="text-xs font-medium text-muted-foreground">Loan Repayment Details:</p>
+                      {loanDeductionDetails.map((item) => {
+                        const loan = item.loan;
+                        const edit = loanRepaymentEdits[loan.id] ?? {
+                          repaymentType: loan.repaymentType,
+                          repaymentMonth: loan.repaymentMonth ?? "",
+                          repaymentPercentage: loan.repaymentPercentage ?? 0,
+                          repaymentAmount: loan.repaymentAmount ?? 0,
+                        };
                         return (
-                          <div key={loan.id} className="flex justify-between items-center text-xs">
-                            <span className="text-muted-foreground">
-                              {formatPKR(loan.amount)} loan — <span className="italic">{modeLabel}</span>
-                            </span>
-                            <span className="text-destructive font-medium">
-                              {deduction > 0 ? `-${formatPKR(deduction)}` : "—"}
-                            </span>
+                          <div key={loan.id} className="rounded-md border border-border bg-background p-2 text-xs space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-foreground">{formatPKR(loan.amount)} loan</span>
+                              <Badge variant={item.deduction > 0 ? "destructive" : "secondary"}>
+                                {item.deduction > 0 ? `-${formatPKR(item.deduction)}` : "No deduction"}
+                              </Badge>
+                            </div>
+                            <div className="space-y-2 rounded-md bg-muted/60 p-2">
+                              <div>
+                                <Label className="text-xs">Repayment Method</Label>
+                                <Select
+                                  value={edit.repaymentType}
+                                  onValueChange={(value: TeacherLoan["repaymentType"]) => {
+                                    updateLoanRepaymentEdit(loan.id, {
+                                      repaymentType: value,
+                                      repaymentMonth: value === "specific_month" ? edit.repaymentMonth || form.month : edit.repaymentMonth,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 bg-background"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="specific_month">Return in specific month</SelectItem>
+                                    <SelectItem value="percentage">Deduct % from salary monthly</SelectItem>
+                                    <SelectItem value="custom_amount">Deduct fixed amount monthly</SelectItem>
+                                    <SelectItem value="manual">Manual (no auto deduction)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {edit.repaymentType === "specific_month" && (
+                                <div>
+                                  <Label className="text-xs">Return Month</Label>
+                                  <Input
+                                    type="month"
+                                    value={edit.repaymentMonth}
+                                    onChange={(event) => updateLoanRepaymentEdit(loan.id, { repaymentMonth: event.target.value })}
+                                    className="h-8 bg-background"
+                                  />
+                                </div>
+                              )}
+
+                              {edit.repaymentType === "percentage" && (
+                                <div>
+                                  <Label className="text-xs">Monthly Deduction (%)</Label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={edit.repaymentPercentage}
+                                    onChange={(event) => updateLoanRepaymentEdit(loan.id, { repaymentPercentage: Number(event.target.value) })}
+                                    className="h-8 bg-background"
+                                  />
+                                </div>
+                              )}
+
+                              {edit.repaymentType === "custom_amount" && (
+                                <div>
+                                  <Label className="text-xs">Monthly Deduction Amount (PKR)</Label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={edit.repaymentAmount}
+                                    onChange={(event) => updateLoanRepaymentEdit(loan.id, { repaymentAmount: Number(event.target.value) })}
+                                    className="h-8 bg-background"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            <p className="text-muted-foreground">Current plan: {item.repaymentLabel}</p>
+                            <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                              <span>
+                                Remaining: <span className="font-medium text-foreground">{formatPKR(loan.remaining)}</span>
+                              </span>
+                              <span>
+                                After pay: <span className="font-medium text-foreground">{formatPKR(item.remainingAfter)}</span>
+                              </span>
+                            </div>
+                            <p className="text-muted-foreground">{item.note}</p>
                           </div>
                         );
                       })}
@@ -394,7 +609,13 @@ export default function TeacherSalaries() {
                 <div key={t.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
                   <span className="text-sm font-medium">{t.name}</span>
                   <span className="text-sm font-semibold text-destructive">
-                    {formatPKR(getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth))}
+                    {formatPKR(
+                      getProratedMonthlyAmount(
+                        getEffectiveTeacherMonthlySalary(t.monthlySalary, t.joiningDate, currentMonth, settings.annualIncrementPercentage),
+                        t.joiningDate,
+                        currentMonth
+                      )
+                    )}
                   </span>
                 </div>
               ))}
@@ -410,11 +631,32 @@ export default function TeacherSalaries() {
         <CardHeader>
           <CardTitle className="text-lg">Salary History</CardTitle>
           <div className="flex flex-wrap gap-3 mt-3">
-            <Select value={filterTeacher} onValueChange={setFilterTeacher}>
+            <Select
+              value={filterTeacher}
+              onValueChange={(value) => {
+                setFilterTeacher(value);
+                setFilterTeacherSearch("");
+              }}
+            >
               <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Teachers" /></SelectTrigger>
               <SelectContent>
+                <div className="sticky top-0 z-10 bg-popover p-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={filterTeacherSearch}
+                      onChange={(e) => setFilterTeacherSearch(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      placeholder="Search teacher..."
+                      className="h-9 pl-8"
+                    />
+                  </div>
+                </div>
                 <SelectItem value="all">All Teachers</SelectItem>
-                {teachers.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                {filteredSalaryHistoryTeachers.length === 0 && (
+                  <p className="text-sm text-muted-foreground p-2 text-center">No teachers found.</p>
+                )}
+                {filteredSalaryHistoryTeachers.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterMonth} onValueChange={setFilterMonth}>
@@ -435,7 +677,7 @@ export default function TeacherSalaries() {
               </SelectContent>
             </Select>
             {(filterTeacher !== "all" || filterMonth !== "all" || filterMode !== "all") && (
-              <Button variant="ghost" size="sm" onClick={() => { setFilterTeacher("all"); setFilterMonth("all"); setFilterMode("all"); }}>Clear Filters</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setFilterTeacher("all"); setFilterTeacherSearch(""); setFilterMonth("all"); setFilterMode("all"); }}>Clear Filters</Button>
             )}
           </div>
         </CardHeader>
@@ -447,17 +689,23 @@ export default function TeacherSalaries() {
               (filterMode === "all" || s.paymentMode === filterMode)
             );
             return filtered.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No salary payments found.</p> : (
-              <Table>
-                <TableHeader><TableRow>
-                  <TableHead>Teacher</TableHead><TableHead>Month</TableHead><TableHead>Base</TableHead><TableHead>Loan Ded.</TableHead><TableHead>Other Ded.</TableHead><TableHead>Net Paid</TableHead><TableHead>Mode</TableHead><TableHead>Date</TableHead><TableHead></TableHead>
+              <div className="max-h-[520px] overflow-auto rounded-md border">
+              <table className="w-full caption-bottom text-sm">
+                <TableHeader className="bg-background shadow-sm [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background"><TableRow>
+                  <TableHead>Teacher</TableHead><TableHead>Month</TableHead><TableHead>Base</TableHead><TableHead>Loan Ded.</TableHead><TableHead>Advance Ded.</TableHead><TableHead>Other Ded.</TableHead><TableHead>Net Paid</TableHead><TableHead>Mode</TableHead><TableHead>Date</TableHead><TableHead></TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {filtered.map((s) => (
+                  {filtered.map((s) => {
+                    const advanceDeduction = getAdvanceDeductionForSalary(s.teacherId, s.month);
+                    const loanOnlyDeduction = Math.max(0, s.loanDeduction - advanceDeduction);
+
+                    return (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{getTeacherName(s.teacherId)}</TableCell>
                       <TableCell>{s.month}</TableCell>
                       <TableCell>{formatPKR(s.baseSalary)}{s.customAmount > 0 && <span className="text-xs text-muted-foreground ml-1">(custom)</span>}</TableCell>
-                      <TableCell className="text-destructive">-{formatPKR(s.loanDeduction)}</TableCell>
+                      <TableCell className="text-destructive">-{formatPKR(loanOnlyDeduction)}</TableCell>
+                      <TableCell className="text-destructive">{advanceDeduction > 0 ? `-${formatPKR(advanceDeduction)}` : "—"}</TableCell>
                       <TableCell className="text-destructive">-{formatPKR(s.otherDeduction)}</TableCell>
                       <TableCell className="font-semibold text-primary">{formatPKR(s.netPaid)}</TableCell>
                       <TableCell>
@@ -485,9 +733,10 @@ export default function TeacherSalaries() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
-              </Table>
+              </table>
+              </div>
             );
           })()}
         </CardContent>

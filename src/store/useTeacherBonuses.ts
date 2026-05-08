@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { writeAppLog } from "@/lib/appLogger";
 
 export interface TeacherBonus {
   id: string;
@@ -54,13 +55,30 @@ export function useTeacherBonuses() {
       notes: bonus.notes,
       proof_image_url: bonus.proofImageUrl || "",
     } as any);
-    if (!error) await fetchBonuses();
+    if (!error) {
+      await writeAppLog({
+        action: "teacher_bonus_created",
+        entityType: "teacher_bonus",
+        entityId: bonus.teacherId,
+        message: `Created bonus for teacher ${bonus.teacherId}`,
+        details: bonus as Record<string, unknown>,
+      });
+      await fetchBonuses();
+    }
     return error;
   }, [fetchBonuses]);
 
   const deleteBonus = useCallback(async (id: string) => {
     const { error } = await supabase.from("teacher_bonuses" as any).delete().eq("id", id);
-    if (!error) await fetchBonuses();
+    if (!error) {
+      await writeAppLog({
+        action: "teacher_bonus_deleted",
+        entityType: "teacher_bonus",
+        entityId: id,
+        message: `Deleted bonus ${id}`,
+      });
+      await fetchBonuses();
+    }
     return error;
   }, [fetchBonuses]);
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from "date-fns";
-import { UserMinus, AlertCircle, CheckCircle2 } from "lucide-react";
+import { UserMinus, AlertCircle, CheckCircle2, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import {
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
-import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 import { toast } from "sonner";
 
@@ -36,6 +36,7 @@ export default function StudentLeaving() {
   const { fees } = useFeeStructures();
   const [studentId, setStudentId] = useState("");
   const [leavingDate, setLeavingDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [studentSearch, setStudentSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const activeStudents = useMemo(
@@ -48,6 +49,18 @@ export default function StudentLeaving() {
       .sort((a, b) => (b.leavingDate ?? "").localeCompare(a.leavingDate ?? "")),
     [students]
   );
+  const filteredActiveStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+    if (!query) return activeStudents;
+
+    return activeStudents.filter((student) =>
+      student.name.toLowerCase().includes(query) ||
+      student.classGrade.toLowerCase().includes(query) ||
+      student.studentCode.toLowerCase().includes(query) ||
+      student.guardianName.toLowerCase().includes(query) ||
+      student.contact.toLowerCase().includes(query)
+    );
+  }, [activeStudents, studentSearch]);
 
   const selectedStudent = students.find((student) => student.id === studentId);
   const monthlyFee = getStudentMonthlyFee(selectedStudent, fees);
@@ -58,8 +71,12 @@ export default function StudentLeaving() {
     }
 
     const enrollment = parseISO(selectedStudent.enrollmentDate);
+    const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, selectedStudent.enrollmentDate, selectedStudent.openingDueAmount ?? 0);
+    const feeStartDate = openingInstallments[0]
+      ? parseISO(`${openingInstallments[0].month}-01`)
+      : getStudentFeeStartDate(selectedStudent.enrollmentDate);
     const leaving = parseISO(leavingDate);
-    if (Number.isNaN(enrollment.getTime()) || Number.isNaN(leaving.getTime())) {
+    if (Number.isNaN(enrollment.getTime()) || Number.isNaN(leaving.getTime()) || !feeStartDate) {
       return { valid: false, months: [] as PreviewMonth[], message: "Enter a valid leaving date." };
     }
     if (leaving < enrollment) {
@@ -67,16 +84,12 @@ export default function StudentLeaving() {
     }
 
     const months = eachMonthOfInterval({
-      start: startOfMonth(enrollment),
+      start: startOfMonth(feeStartDate),
       end: startOfMonth(leaving),
     }).map((monthDate) => {
       const month = format(monthDate, "yyyy-MM");
-      const due = getStudentMonthlyDue(
-        monthlyFee,
-        selectedStudent.enrollmentDate,
-        month,
-        leavingDate
-      );
+      const openingInstallment = openingInstallments.find((installment) => installment.month === month);
+      const due = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, selectedStudent.enrollmentDate, month, leavingDate);
       const paid = payments
         .filter((payment) => (
           payment.studentId === selectedStudent.id &&
@@ -118,6 +131,7 @@ export default function StudentLeaving() {
       });
       toast.success(`${selectedStudent.name} marked as left`);
       setStudentId("");
+      setStudentSearch("");
       setLeavingDate(format(new Date(), "yyyy-MM-dd"));
     } catch {
       toast.error("Failed to update student");
@@ -143,15 +157,35 @@ export default function StudentLeaving() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Student</Label>
-              <Select value={studentId} onValueChange={setStudentId}>
+              <Select
+                value={studentId}
+                onValueChange={(value) => {
+                  setStudentId(value);
+                  setStudentSearch("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select active student" />
                 </SelectTrigger>
                 <SelectContent>
+                  <div className="sticky top-0 z-10 bg-popover p-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={studentSearch}
+                        onChange={(event) => setStudentSearch(event.target.value)}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        placeholder="Search student..."
+                        className="h-9 pl-8"
+                      />
+                    </div>
+                  </div>
                   {activeStudents.length === 0 ? (
                     <div className="px-2 py-3 text-sm text-muted-foreground">No active students found.</div>
+                  ) : filteredActiveStudents.length === 0 ? (
+                    <div className="px-2 py-3 text-sm text-muted-foreground">No matching students found.</div>
                   ) : (
-                    activeStudents.map((student) => (
+                    filteredActiveStudents.map((student) => (
                       <SelectItem key={student.id} value={student.id}>
                         {student.name} ({student.classGrade}){student.studentCode ? ` - ${student.studentCode}` : ""}
                       </SelectItem>

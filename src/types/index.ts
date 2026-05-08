@@ -8,6 +8,7 @@ export interface Student {
   enrollmentDate: string;
   leavingDate?: string | null;
   monthlyFee: number;
+  openingDueAmount?: number;
   status: "active" | "inactive";
 }
 
@@ -94,6 +95,10 @@ export interface TeacherAttendance {
   timeIn: string | null;
   timeOut: string | null;
   notes: string;
+}
+
+export interface TeacherSalarySettings {
+  annualIncrementPercentage: number;
 }
 
 export const CLASS_GRADES = [

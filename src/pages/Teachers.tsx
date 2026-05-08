@@ -68,7 +68,7 @@ export default function Teachers() {
               (filterStatus === "all" || teacher.status === filterStatus) &&
               (!q || teacher.name.toLowerCase().includes(q) || teacher.contact.toLowerCase().includes(q) || teacher.cnic.toLowerCase().includes(q))
             );
-            const headers = ["Name", "Contact", "CNIC", "Monthly Salary", "Joining Date", "Status"];
+            const headers = ["Name", "Contact", "CNIC", "Base Salary", "Joining Date", "Status"];
             const rows = filtered.map((teacher) => [teacher.name, teacher.contact, teacher.cnic, String(teacher.monthlySalary), teacher.joiningDate, teacher.status]);
             downloadCSV("teachers.csv", headers, rows);
             toast.success(`Exported ${filtered.length} teachers`);
@@ -108,7 +108,7 @@ export default function Teachers() {
                 <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
                 <div><Label>Contact</Label><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>
                 <div><Label>CNIC</Label><Input value={form.cnic} onChange={(e) => setForm({ ...form, cnic: e.target.value })} /></div>
-                <div><Label>Monthly Salary</Label><Input type="number" value={form.monthlySalary} onChange={(e) => setForm({ ...form, monthlySalary: Number(e.target.value) })} /></div>
+                <div><Label>Base Monthly Salary</Label><Input type="number" value={form.monthlySalary} onChange={(e) => setForm({ ...form, monthlySalary: Number(e.target.value) })} /></div>
                 <div><Label>Joining Date</Label><Input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} /></div>
                 <div><Label>Status</Label>
                   <Select value={form.status} onValueChange={(v: string) => setForm({ ...form, status: v as "active" | "inactive" })}>
@@ -151,7 +151,7 @@ export default function Teachers() {
             return filtered.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No teachers found.</p> : (
               <Table>
                 <TableHeader><TableRow>
-                  <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Joining Date</TableHead><TableHead>Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Joining Date</TableHead><TableHead>Base Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
                   {filtered.map((t) => (

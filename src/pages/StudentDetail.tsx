@@ -34,7 +34,7 @@ import {
 import { ArrowLeft, User, CreditCard, AlertTriangle, Plus } from "lucide-react";
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 
 export default function StudentDetail() {
@@ -103,7 +103,14 @@ export default function StudentDetail() {
   const suggestedAmount =
     student
       ? payForm.feeType === "tuition"
-        ? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, payForm.feeMonth, student.leavingDate)
+        ? Math.max(
+            0,
+            (getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0).find((installment) => installment.month === payForm.feeMonth)?.due ??
+              getStudentMonthlyDue(monthlyFee, student.enrollmentDate, payForm.feeMonth, student.leavingDate)) -
+              studentPayments
+                .filter((p) => p.feeType === "tuition" && p.feeMonth === payForm.feeMonth)
+                .reduce((sum, p) => sum + p.amountPaid, 0)
+          )
         : selectedFee?.amount ?? 0
       : 0;
   const suggestedAmountIsProrated =
@@ -117,23 +124,30 @@ export default function StudentDetail() {
     setPayForm((current) => ({ ...current, amountPaid: String(suggestedAmount) }));
   }, [payDialogOpen, payForm.feeType, payForm.feeMonth, suggestedAmount]);
 
-  // Calculate pending months from enrollment through leaving date, or through now.
+  // Calculate pending balances from enrollment through leaving date, or through now.
   const pendingMonths: { month: string; due: number; paid: number; balance: number; prorated: boolean }[] = [];
   if (student && monthlyFee > 0) {
-    const enrollDate = parseISO(student.enrollmentDate);
+    const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0);
+    const feeStartDate = openingInstallments[0]
+      ? parseISO(`${openingInstallments[0].month}-01`)
+      : getStudentFeeStartDate(student.enrollmentDate);
+    if (!feeStartDate) {
+      return;
+    }
     const now = new Date();
     const leavingDate = student.leavingDate ? parseISO(student.leavingDate) : null;
     const feeEndDate = leavingDate && leavingDate < now ? leavingDate : now;
     const months = eachMonthOfInterval({
-      start: startOfMonth(enrollDate),
+      start: startOfMonth(feeStartDate),
       end: startOfMonth(feeEndDate),
     });
     for (const m of months) {
       const monthKey = format(m, "yyyy-MM");
+      const openingInstallment = openingInstallments.find((installment) => installment.month === monthKey);
       const paidForMonth = studentPayments
         .filter((p) => p.feeMonth === monthKey && p.feeType === "tuition")
         .reduce((sum, p) => sum + p.amountPaid, 0);
-      const due = getStudentMonthlyDue(monthlyFee, student.enrollmentDate, monthKey, student.leavingDate);
+      const due = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, monthKey, student.leavingDate);
       const balance = due - paidForMonth;
       pendingMonths.push({
         month: monthKey,
@@ -149,7 +163,7 @@ export default function StudentDetail() {
   const totalPaid = studentPayments
     .filter((p) => p.feeType === "tuition")
     .reduce((s, p) => s + p.amountPaid, 0);
-  const totalPending = totalDue - totalPaid;
+  const totalPending = pendingMonths.reduce((s, m) => s + Math.max(0, m.balance), 0);
   const unpaidMonths = pendingMonths.filter((m) => m.balance > 0);
 
   if (!student) {
@@ -294,7 +308,7 @@ export default function StudentDetail() {
             </p>
             {unpaidMonths.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                {unpaidMonths.length} month(s) unpaid/partial
+                {unpaidMonths.length} pending balance row(s)
               </p>
             )}
           </CardContent>

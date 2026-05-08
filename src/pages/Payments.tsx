@@ -45,7 +45,7 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
-import { getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 import { toast } from "sonner";
 import ProofUpload from "@/components/ProofUpload";
@@ -83,10 +83,17 @@ export default function Payments() {
   const selectedStudentPendingFees = useMemo(() => {
     if (!selectedStudent || selectedStudentMonthlyFee <= 0) return [];
 
-    const enrollmentDate = new Date(`${selectedStudent.enrollmentDate}T00:00:00`);
-    if (Number.isNaN(enrollmentDate.getTime())) return [];
+    const openingInstallments = getStudentOpeningDueInstallments(
+      selectedStudentMonthlyFee,
+      selectedStudent.enrollmentDate,
+      selectedStudent.openingDueAmount ?? 0
+    );
+    const feeStartDate = openingInstallments[0]
+      ? new Date(`${openingInstallments[0].month}-01T00:00:00`)
+      : getStudentFeeStartDate(selectedStudent.enrollmentDate);
+    if (!feeStartDate) return [];
 
-    const monthCursor = new Date(enrollmentDate.getFullYear(), enrollmentDate.getMonth(), 1);
+    const monthCursor = new Date(feeStartDate.getFullYear(), feeStartDate.getMonth(), 1);
     const thisMonth = new Date();
     const currentMonthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
     const leavingDate = selectedStudent.leavingDate
@@ -100,12 +107,15 @@ export default function Payments() {
 
     while (monthCursor <= feeEndMonth) {
       const month = format(monthCursor, "yyyy-MM");
-      const expected = getStudentMonthlyDue(
-        selectedStudentMonthlyFee,
-        selectedStudent.enrollmentDate,
-        month,
-        selectedStudent.leavingDate
-      );
+      const openingInstallment = openingInstallments.find((installment) => installment.month === month);
+      const expected = openingInstallment
+        ? openingInstallment.due
+        : getStudentMonthlyDue(
+            selectedStudentMonthlyFee,
+            selectedStudent.enrollmentDate,
+            month,
+            selectedStudent.leavingDate
+          );
       const paid = payments
         .filter((payment) => payment.studentId === selectedStudent.id && payment.feeType === "tuition" && payment.feeMonth === month)
         .reduce((sum, payment) => sum + payment.amountPaid, 0);
@@ -122,18 +132,41 @@ export default function Payments() {
   const nextPendingFee = selectedStudentPendingFees[0];
   const pendingMonthsCount = selectedStudentPendingFees.length;
   const fullPaymentRequired = form.feeType === "tuition" && pendingMonthsCount <= 1 && Boolean(nextPendingFee);
+  const selectedMonthOpeningInstallment =
+    selectedStudent && selectedStudentMonthlyFee > 0
+      ? getStudentOpeningDueInstallments(
+          selectedStudentMonthlyFee,
+          selectedStudent.enrollmentDate,
+          selectedStudent.openingDueAmount ?? 0
+        ).find((installment) => installment.month === form.feeMonth)
+      : undefined;
+  const selectedMonthTuitionDue = selectedStudent
+    ? selectedMonthOpeningInstallment?.due ??
+      getStudentMonthlyDue(
+        selectedStudentMonthlyFee,
+        selectedStudent.enrollmentDate,
+        form.feeMonth,
+        selectedStudent.leavingDate
+      )
+    : 0;
+  const selectedMonthTuitionPaid = selectedStudent
+    ? payments
+        .filter((payment) => payment.studentId === selectedStudent.id && payment.feeType === "tuition" && payment.feeMonth === form.feeMonth)
+        .reduce((sum, payment) => sum + payment.amountPaid, 0)
+    : 0;
+  const selectedMonthTuitionPending = Math.max(0, selectedMonthTuitionDue - selectedMonthTuitionPaid);
   const pendingPaymentMessage =
     form.feeType === "tuition" && selectedStudent
       ? pendingMonthsCount === 0
         ? "No pending tuition payment found for this student."
         : pendingMonthsCount === 1
-          ? "Only 1 month pending — full payment required."
-          : `${pendingMonthsCount} months pending — partial payment allowed.`
+          ? "One pending fee balance found - full payment required."
+          : `${pendingMonthsCount} pending fee balances found - partial payment allowed.`
       : "";
   const expectedAmount =
     selectedStudent
       ? form.feeType === "tuition"
-        ? nextPendingFee?.pending ?? getStudentMonthlyDue(selectedStudentMonthlyFee, selectedStudent.enrollmentDate, form.feeMonth, selectedStudent.leavingDate)
+        ? nextPendingFee?.pending ?? selectedMonthTuitionPending
         : selectedFee?.amount ?? 0
       : 0;
   const isProrated =
@@ -254,7 +287,7 @@ export default function Payments() {
       <html>
         <head><title>Fee Slip - ${payment.receiptNumber}</title>
         <style>
-          body { font-family: system-ui, sans-serif; padding: 40px; max-width: 600px; margin: auto; color: #1a1a1a; }
+          body { font-family: system-ui, sans-serif; padding: 40px; max-width: 600px; margin: auto; color: #1a1a1a; font-weight: 700; }
           .header { text-align: center; border-bottom: 3px solid #1a6b4a; padding-bottom: 16px; margin-bottom: 28px; }
           .header h1 { color: #1a6b4a; margin: 0; font-size: 24px; }
           .header p { color: #666; margin: 4px 0 0; font-size: 13px; }
@@ -262,13 +295,13 @@ export default function Payments() {
           .section { margin-bottom: 20px; }
           .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px; font-weight: 600; }
           .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
-          .label { color: #666; font-size: 14px; }
-          .value { font-weight: 600; font-size: 14px; }
+          .label { color: #666; font-size: 14px; font-weight: 700; }
+          .value { font-weight: 700; font-size: 14px; }
           .amount-row { background: #f0faf5; padding: 12px; border-radius: 8px; margin-top: 12px; }
           .amount-row .value { font-size: 22px; color: #1a6b4a; }
           .footer { text-align: center; margin-top: 40px; padding-top: 16px; border-top: 1px solid #eee; color: #999; font-size: 11px; }
           .stamp { text-align: right; margin-top: 40px; }
-          .stamp-line { display: inline-block; width: 200px; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; color: #666; text-align: center; }
+          .stamp-line { display: inline-block; width: 200px; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; color: #666; text-align: center; font-weight: 700; }
           @media print { body { padding: 20px; } }
         </style></head>
         <body>

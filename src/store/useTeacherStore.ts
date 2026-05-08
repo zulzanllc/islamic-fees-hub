@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { Teacher, TeacherLoan, TeacherSalary, TeacherAttendance } from "@/types";
+import type { Teacher, TeacherLoan, TeacherSalary, TeacherAttendance, TeacherSalarySettings } from "@/types";
+import { writeAppLog } from "@/lib/appLogger";
 
 export function useTeachers() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -30,6 +31,12 @@ export function useTeachers() {
       name: teacher.name, contact: teacher.contact, cnic: teacher.cnic,
       joining_date: teacher.joiningDate, status: teacher.status, monthly_salary: teacher.monthlySalary,
     } as any);
+    await writeAppLog({
+      action: "teacher_created",
+      entityType: "teacher",
+      message: `Created teacher ${teacher.name}`,
+      details: teacher as Record<string, unknown>,
+    });
     await fetchTeachers();
   }, [fetchTeachers]);
 
@@ -43,6 +50,14 @@ export function useTeachers() {
       monthly_salary: teacher.monthlySalary,
     }));
     const { error } = await supabase.from("teachers").insert(rows as any);
+    if (!error) {
+      await writeAppLog({
+        action: "teachers_imported",
+        entityType: "teacher",
+        message: `Imported ${teachers.length} teachers`,
+        details: { count: teachers.length },
+      });
+    }
     await fetchTeachers();
     return error;
   }, [fetchTeachers]);
@@ -56,11 +71,24 @@ export function useTeachers() {
     if (updates.status !== undefined) mapped.status = updates.status;
     if (updates.monthlySalary !== undefined) mapped.monthly_salary = updates.monthlySalary;
     await supabase.from("teachers").update(mapped).eq("id", id);
+    await writeAppLog({
+      action: "teacher_updated",
+      entityType: "teacher",
+      entityId: id,
+      message: `Updated teacher ${id}`,
+      details: updates as Record<string, unknown>,
+    });
     await fetchTeachers();
   }, [fetchTeachers]);
 
   const deleteTeacher = useCallback(async (id: string) => {
     await supabase.from("teachers").delete().eq("id", id);
+    await writeAppLog({
+      action: "teacher_deleted",
+      entityType: "teacher",
+      entityId: id,
+      message: `Deleted teacher ${id}`,
+    });
     await fetchTeachers();
   }, [fetchTeachers]);
 
@@ -99,6 +127,13 @@ export function useTeacherLoans() {
       repayment_percentage: loan.repaymentPercentage || null,
       repayment_amount: loan.repaymentAmount || null,
     } as any);
+    await writeAppLog({
+      action: "teacher_loan_created",
+      entityType: "teacher_loan",
+      entityId: loan.teacherId,
+      message: `Created loan for teacher ${loan.teacherId}`,
+      details: loan as Record<string, unknown>,
+    });
     await fetchLoans();
   }, [fetchLoans]);
 
@@ -115,6 +150,13 @@ export function useTeacherLoans() {
     if (updates.repaymentPercentage !== undefined) mapped.repayment_percentage = updates.repaymentPercentage;
     if (updates.repaymentAmount !== undefined) mapped.repayment_amount = updates.repaymentAmount;
     await supabase.from("teacher_loans").update(mapped).eq("id", id);
+    await writeAppLog({
+      action: "teacher_loan_updated",
+      entityType: "teacher_loan",
+      entityId: id,
+      message: `Updated loan ${id}`,
+      details: updates as Record<string, unknown>,
+    });
     await fetchLoans();
   }, [fetchLoans]);
 
@@ -155,6 +197,17 @@ export function useTeacherSalaries() {
       proof_image_url: salary.proofImageUrl || "",
       custom_amount: salary.customAmount || 0,
     } as any);
+    await writeAppLog({
+      action: "teacher_salary_created",
+      entityType: "teacher_salary",
+      entityId: salary.teacherId,
+      message: `Recorded salary for teacher ${salary.teacherId}`,
+      details: {
+        month: salary.month,
+        netPaid: salary.netPaid,
+        paymentMode: salary.paymentMode,
+      },
+    });
     await fetchSalaries();
   }, [fetchSalaries]);
 
@@ -171,13 +224,30 @@ export function useTeacherSalaries() {
     if (updates.proofImageUrl !== undefined) mapped.proof_image_url = updates.proofImageUrl;
     if (updates.customAmount !== undefined) mapped.custom_amount = updates.customAmount;
     const { error } = await supabase.from("teacher_salaries").update(mapped).eq("id", id);
-    if (!error) await fetchSalaries();
+    if (!error) {
+      await writeAppLog({
+        action: "teacher_salary_updated",
+        entityType: "teacher_salary",
+        entityId: id,
+        message: `Updated salary ${id}`,
+        details: updates as Record<string, unknown>,
+      });
+      await fetchSalaries();
+    }
     return error;
   }, [fetchSalaries]);
 
   const deleteSalary = useCallback(async (id: string) => {
     const { error } = await supabase.from("teacher_salaries").delete().eq("id", id);
-    if (!error) await fetchSalaries();
+    if (!error) {
+      await writeAppLog({
+        action: "teacher_salary_deleted",
+        entityType: "teacher_salary",
+        entityId: id,
+        message: `Deleted salary ${id}`,
+      });
+      await fetchSalaries();
+    }
     return error;
   }, [fetchSalaries]);
 
@@ -207,6 +277,13 @@ export function useTeacherAttendance() {
       teacher_id: entry.teacherId, date: entry.date,
       time_in: entry.timeIn, time_out: entry.timeOut, notes: entry.notes,
     } as any);
+    await writeAppLog({
+      action: "teacher_attendance_created",
+      entityType: "teacher_attendance",
+      entityId: entry.teacherId,
+      message: `Recorded attendance for teacher ${entry.teacherId}`,
+      details: entry as Record<string, unknown>,
+    });
     await fetchAttendance();
   }, [fetchAttendance]);
 
@@ -216,8 +293,61 @@ export function useTeacherAttendance() {
     if (updates.timeOut !== undefined) mapped.time_out = updates.timeOut;
     if (updates.notes !== undefined) mapped.notes = updates.notes;
     await supabase.from("teacher_attendance").update(mapped).eq("id", id);
+    await writeAppLog({
+      action: "teacher_attendance_updated",
+      entityType: "teacher_attendance",
+      entityId: id,
+      message: `Updated attendance ${id}`,
+      details: updates as Record<string, unknown>,
+    });
     await fetchAttendance();
   }, [fetchAttendance]);
 
   return { attendance, loading, addAttendance, updateAttendance };
+}
+
+export function useTeacherSalarySettings() {
+  const [settings, setSettings] = useState<TeacherSalarySettings>({ annualIncrementPercentage: 10 });
+  const [loading, setLoading] = useState(true);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("teacher_salary_settings")
+      .select("*")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (data) {
+      setSettings({
+        annualIncrementPercentage: Number((data as any).annual_increment_percentage ?? 10),
+      });
+    } else {
+      setSettings({ annualIncrementPercentage: 10 });
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  const updateSettings = useCallback(async (updates: Partial<TeacherSalarySettings>) => {
+    const { error } = await supabase.from("teacher_salary_settings").upsert({
+      id: 1,
+      annual_increment_percentage: updates.annualIncrementPercentage ?? settings.annualIncrementPercentage,
+    } as any);
+    if (!error) {
+      await writeAppLog({
+        source: "admin",
+        action: "teacher_salary_settings_updated",
+        entityType: "teacher_salary_settings",
+        entityId: "1",
+        message: "Updated teacher salary settings",
+        details: updates as Record<string, unknown>,
+      });
+      await fetchSettings();
+    }
+    return error;
+  }, [fetchSettings, settings.annualIncrementPercentage]);
+
+  return { settings, loading, updateSettings, fetchSettings };
 }

@@ -55,15 +55,15 @@ export default function Receipts() {
       <html>
         <head><title>Receipt ${payment.receiptNumber}</title>
         <style>
-          body { font-family: system-ui, sans-serif; padding: 40px; max-width: 600px; margin: auto; }
+          body { font-family: system-ui, sans-serif; padding: 40px; max-width: 600px; margin: auto; font-weight: 700; }
           .header { text-align: center; border-bottom: 2px solid #1a6b4a; padding-bottom: 16px; margin-bottom: 24px; }
           .header h1 { color: #1a6b4a; margin: 0; font-size: 22px; }
           .header p { color: #666; margin: 4px 0 0; font-size: 13px; }
           .copy-label { text-align: right; font-size: 14px; font-weight: 700; color: ${isOriginal ? "#1a6b4a" : "#c0392b"}; margin-bottom: 12px; text-transform: uppercase; border: 2px solid ${isOriginal ? "#1a6b4a" : "#c0392b"}; display: inline-block; padding: 2px 10px; float: right; }
           .details { margin-bottom: 24px; clear: both; }
           .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-          .label { color: #666; font-size: 14px; }
-          .value { font-weight: 600; font-size: 14px; }
+          .label { color: #666; font-size: 14px; font-weight: 700; }
+          .value { font-weight: 700; font-size: 14px; }
           .total { font-size: 18px; color: #1a6b4a; }
           .footer { text-align: center; margin-top: 32px; color: #999; font-size: 12px; }
           @media print { body { padding: 20px; } }

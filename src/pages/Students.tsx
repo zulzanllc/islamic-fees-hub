@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStudents } from "@/store/useStore";
 import { Student } from "@/types";
 import { useClasses } from "@/hooks/useClasses";
@@ -50,6 +50,7 @@ type StudentForm = {
   status: "active" | "inactive";
   studentCode: string;
   monthlyFee: string;
+  openingDueAmount: string;
 };
 
 const emptyForm: StudentForm = {
@@ -62,6 +63,7 @@ const emptyForm: StudentForm = {
   status: "active",
   studentCode: "",
   monthlyFee: "",
+  openingDueAmount: "0",
 };
 
 export default function Students() {
@@ -73,6 +75,7 @@ export default function Students() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StudentForm>(emptyForm);
+  const [classSearch, setClassSearch] = useState("");
   const navigate = useNavigate();
 
   const filtered = students.filter((s) => {
@@ -101,6 +104,12 @@ export default function Students() {
         ? selectedClasses[0]
         : `${selectedClasses.length} classes selected`;
 
+  const filteredClassNames = useMemo(() => {
+    const query = classSearch.trim().toLowerCase();
+    if (!query) return classNames;
+    return classNames.filter((className) => className.toLowerCase().includes(query));
+  }, [classNames, classSearch]);
+
   const handleSubmit = async () => {
     if (!form.name || !form.classGrade) return;
     const monthlyFee = parseFloat(form.monthlyFee) || 0;
@@ -108,10 +117,15 @@ export default function Students() {
       toast.error("Monthly fee is required for each student");
       return;
     }
+    const openingDueAmount = form.openingDueAmount === "" ? 0 : Number(form.openingDueAmount);
+    if (!Number.isFinite(openingDueAmount) || openingDueAmount < 0) {
+      toast.error("Pending fees must be a valid amount");
+      return;
+    }
     if (editingId) {
-      updateStudent(editingId, { ...form, monthlyFee });
+      updateStudent(editingId, { ...form, monthlyFee, openingDueAmount });
     } else {
-      await addStudent({ ...form, monthlyFee });
+      await addStudent({ ...form, monthlyFee, openingDueAmount });
     }
     setForm(emptyForm);
     setEditingId(null);
@@ -130,6 +144,7 @@ export default function Students() {
       status: student.status,
       studentCode: student.studentCode,
       monthlyFee: student.monthlyFee ? String(student.monthlyFee) : "",
+      openingDueAmount: String(student.openingDueAmount ?? 0),
     });
     setDialogOpen(true);
   };
@@ -154,8 +169,8 @@ export default function Students() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["Code", "Name", "Guardian", "Class", "Monthly Fee", "Contact", "Joining Date", "Leaving Date", "Status"];
-              const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
+              const headers = ["Code", "Name", "Guardian", "Class", "Monthly Fee", "Pending Fees", "Contact", "Joining Date", "Leaving Date", "Status"];
+              const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), String(s.openingDueAmount ?? 0), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
               downloadCSV("students.csv", headers, rows, {
                 delimiter: "\t",
                 encoding: "utf-16le",
@@ -172,6 +187,7 @@ export default function Students() {
               if (!open) {
                 setEditingId(null);
                 setForm(emptyForm);
+                setClassSearch("");
               }
             }}
           >
@@ -229,13 +245,34 @@ export default function Students() {
                 <Label>Class/Grade *</Label>
                 <Select
                   value={form.classGrade}
-                  onValueChange={(v) => setForm({ ...form, classGrade: v })}
+                  onValueChange={(v) => {
+                    setForm({ ...form, classGrade: v });
+                    setClassSearch("");
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select class" />
                   </SelectTrigger>
                   <SelectContent>
-                    {classNames.map((g) => (
+                    <div className="sticky top-0 z-10 bg-popover p-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={classSearch}
+                          onChange={(e) => setClassSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder="Search class..."
+                          className="h-9 pl-8"
+                        />
+                      </div>
+                    </div>
+                    {classNames.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No classes found.</p>
+                    )}
+                    {classNames.length > 0 && filteredClassNames.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No classes found.</p>
+                    )}
+                    {filteredClassNames.map((g) => (
                       <SelectItem key={g} value={g}>
                         {g}
                       </SelectItem>
@@ -261,6 +298,16 @@ export default function Students() {
                   value={form.monthlyFee}
                   onChange={(e) => setForm({ ...form, monthlyFee: e.target.value })}
                   placeholder="e.g. 2000"
+                />
+              </div>
+              <div>
+                <Label>Pending Fees (PKR)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.openingDueAmount}
+                  onChange={(e) => setForm({ ...form, openingDueAmount: e.target.value })}
+                  placeholder="e.g. 16000"
                 />
               </div>
               <div>
@@ -363,6 +410,7 @@ export default function Students() {
                 <TableHead>Guardian</TableHead>
                 <TableHead>Class</TableHead>
                 <TableHead>Monthly Fee</TableHead>
+                <TableHead>Pending Fees</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Joining Date</TableHead>
                 <TableHead>Leaving Date</TableHead>
@@ -373,7 +421,7 @@ export default function Students() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     No students found.
                   </TableCell>
                 </TableRow>
@@ -385,6 +433,7 @@ export default function Students() {
                     <TableCell>{s.guardianName}</TableCell>
                     <TableCell>{s.classGrade}</TableCell>
                     <TableCell>{s.monthlyFee ? formatPKR(s.monthlyFee) : "-"}</TableCell>
+                    <TableCell>{s.openingDueAmount ? formatPKR(s.openingDueAmount) : "-"}</TableCell>
                     <TableCell>{s.contact}</TableCell>
                     <TableCell>{s.enrollmentDate}</TableCell>
                     <TableCell>{s.leavingDate ?? "-"}</TableCell>

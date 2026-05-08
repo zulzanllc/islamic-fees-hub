@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { writeAppLog } from "@/lib/appLogger";
 
 export interface UserPermissions {
   canViewStudents: boolean;
@@ -166,10 +167,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listener for ONGOING auth changes (does NOT control isLoading)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
         if (!isMounted) return;
         setSession(session);
         setUser(session?.user ?? null);
+
+        if (event === "SIGNED_IN" && session?.user) {
+          void writeAppLog({
+            source: "auth",
+            action: "sign_in",
+            entityType: "auth_user",
+            entityId: session.user.id,
+            actorEmail: session.user.email ?? null,
+            message: "User signed in",
+          });
+        }
+
+        if (event === "SIGNED_OUT") {
+          void writeAppLog({
+            source: "auth",
+            action: "sign_out",
+            entityType: "auth_user",
+            message: "User signed out",
+          });
+        }
 
         if (session?.user) {
           setTimeout(() => checkUserRole(session.user.id), 0);
@@ -211,12 +232,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      void writeAppLog({
+        source: "auth",
+        severity: "warning",
+        action: "sign_in_failed",
+        entityType: "auth_user",
+        actorEmail: email,
+        message: error.message,
+      });
+    }
     return { error: error?.message ?? null };
   };
 
 
 
   const signOut = async () => {
+    void writeAppLog({
+      source: "auth",
+      action: "sign_out_requested",
+      entityType: "auth_user",
+      entityId: user?.id ?? null,
+      actorEmail: user?.email ?? null,
+      message: "User requested sign out",
+    });
     await supabase.auth.signOut();
     setIsAdmin(false);
     setUserRole(null);

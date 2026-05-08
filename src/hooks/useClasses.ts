@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { writeAppLog } from "@/lib/appLogger";
 
 export interface ClassItem {
   id: string;
@@ -40,6 +41,12 @@ export function useClasses() {
       sort_order: maxOrder + 1,
     });
     if (error) return error.message;
+    await writeAppLog({
+      action: "class_created",
+      entityType: "class",
+      message: `Created class ${name.trim()}`,
+      details: { name: name.trim() },
+    });
     await fetchClasses();
     return null;
   }, [classes, fetchClasses]);
@@ -47,6 +54,12 @@ export function useClasses() {
   const deleteClass = useCallback(async (id: string) => {
     const { error } = await supabase.from("classes").delete().eq("id", id);
     if (error) return error.message;
+    await writeAppLog({
+      action: "class_deleted",
+      entityType: "class",
+      entityId: id,
+      message: `Deleted class ${id}`,
+    });
     await fetchClasses();
     return null;
   }, [fetchClasses]);
@@ -54,6 +67,13 @@ export function useClasses() {
   const updateClass = useCallback(async (id: string, name: string) => {
     const { error } = await supabase.from("classes").update({ name: name.trim() }).eq("id", id);
     if (error) return error.message;
+    await writeAppLog({
+      action: "class_updated",
+      entityType: "class",
+      entityId: id,
+      message: `Updated class ${id}`,
+      details: { name: name.trim() },
+    });
     await fetchClasses();
     return null;
   }, [fetchClasses]);

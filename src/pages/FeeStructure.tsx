@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useFeeStructures } from "@/store/useStore";
 import { useClasses } from "@/hooks/useClasses";
 import { formatPKR } from "@/lib/currency";
@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const emptyForm = { classGrade: "", feeType: "tuition" as "tuition" | "registration", amount: 0 };
@@ -41,6 +41,13 @@ export default function FeeStructurePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [classSearch, setClassSearch] = useState("");
+
+  const filteredClassNames = useMemo(() => {
+    const query = classSearch.trim().toLowerCase();
+    if (!query) return classNames;
+    return classNames.filter((className) => className.toLowerCase().includes(query));
+  }, [classNames, classSearch]);
 
   const handleSubmit = () => {
     if (!form.classGrade || form.amount <= 0) return;
@@ -70,6 +77,7 @@ export default function FeeStructurePage() {
             if (!open) {
               setEditingId(null);
               setForm(emptyForm);
+              setClassSearch("");
             }
           }}
         >
@@ -91,13 +99,34 @@ export default function FeeStructurePage() {
                 <Label>Class/Grade *</Label>
                 <Select
                   value={form.classGrade}
-                  onValueChange={(v) => setForm({ ...form, classGrade: v })}
+                  onValueChange={(v) => {
+                    setForm({ ...form, classGrade: v });
+                    setClassSearch("");
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select class" />
                   </SelectTrigger>
                   <SelectContent>
-                    {classNames.map((g) => (
+                    <div className="sticky top-0 z-10 bg-popover p-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={classSearch}
+                          onChange={(e) => setClassSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder="Search class..."
+                          className="h-9 pl-8"
+                        />
+                      </div>
+                    </div>
+                    {classNames.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No classes found.</p>
+                    )}
+                    {classNames.length > 0 && filteredClassNames.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No classes found.</p>
+                    )}
+                    {filteredClassNames.map((g) => (
                       <SelectItem key={g} value={g}>
                         {g}
                       </SelectItem>

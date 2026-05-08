@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Student, FeeStructure, Payment, StudentPaymentSubmission } from "@/types";
+import { writeAppLog } from "@/lib/appLogger";
 
 export function useStudents() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -24,6 +25,7 @@ export function useStudents() {
           enrollmentDate: s.enrollment_date,
           leavingDate: (s as any).leaving_date ?? null,
           monthlyFee: Number((s as any).monthly_fee ?? 0),
+          openingDueAmount: Number((s as any).opening_due_amount ?? 0),
           status: s.status as "active" | "inactive",
         }))
       );
@@ -42,6 +44,7 @@ export function useStudents() {
       enrollment_date: student.enrollmentDate,
       leaving_date: student.leavingDate || null,
       monthly_fee: student.monthlyFee ?? 0,
+      opening_due_amount: student.openingDueAmount ?? 0,
       status: student.status,
     };
     if (student.studentCode) insertData.student_code = student.studentCode;
@@ -50,7 +53,20 @@ export function useStudents() {
       .insert(insertData as any)
       .select()
       .single();
-    if (data) await fetchStudents();
+    if (data) {
+      await writeAppLog({
+        action: "student_created",
+        entityType: "student",
+        entityId: data.id,
+        message: `Created student ${student.name}`,
+        details: {
+          studentCode: data.student_code ?? student.studentCode ?? "",
+          classGrade: student.classGrade,
+          monthlyFee: student.monthlyFee ?? 0,
+        },
+      });
+      await fetchStudents();
+    }
     return data;
   }, [fetchStudents]);
 
@@ -64,12 +80,23 @@ export function useStudents() {
         enrollment_date: s.enrollmentDate,
         leaving_date: s.leavingDate || null,
         monthly_fee: s.monthlyFee ?? 0,
+        opening_due_amount: s.openingDueAmount ?? 0,
         status: s.status,
       };
       if (s.studentCode) row.student_code = s.studentCode;
       return row;
     });
     const { error } = await supabase.from("students").insert(rows as any);
+    if (!error) {
+      await writeAppLog({
+        action: "students_imported",
+        entityType: "student",
+        message: `Imported ${students.length} students`,
+        details: {
+          count: students.length,
+        },
+      });
+    }
     await fetchStudents();
     return error;
   }, [fetchStudents]);
@@ -83,13 +110,27 @@ export function useStudents() {
     if (updates.enrollmentDate !== undefined) mapped.enrollment_date = updates.enrollmentDate;
     if (updates.leavingDate !== undefined) mapped.leaving_date = updates.leavingDate || null;
     if (updates.monthlyFee !== undefined) mapped.monthly_fee = updates.monthlyFee;
+    if (updates.openingDueAmount !== undefined) mapped.opening_due_amount = updates.openingDueAmount;
     if (updates.status !== undefined) mapped.status = updates.status;
     await supabase.from("students").update(mapped).eq("id", id);
+    await writeAppLog({
+      action: "student_updated",
+      entityType: "student",
+      entityId: id,
+      message: `Updated student ${id}`,
+      details: updates as Record<string, unknown>,
+    });
     await fetchStudents();
   }, [fetchStudents]);
 
   const deleteStudent = useCallback(async (id: string) => {
     await supabase.from("students").delete().eq("id", id);
+    await writeAppLog({
+      action: "student_deleted",
+      entityType: "student",
+      entityId: id,
+      message: `Deleted student ${id}`,
+    });
     await fetchStudents();
   }, [fetchStudents]);
 
@@ -127,6 +168,12 @@ export function useFeeStructures() {
       fee_type: fee.feeType,
       amount: fee.amount,
     });
+    await writeAppLog({
+      action: "fee_structure_created",
+      entityType: "fee_structure",
+      message: `Created ${fee.feeType} fee for ${fee.classGrade}`,
+      details: fee as Record<string, unknown>,
+    });
     await fetchFees();
   }, [fetchFees]);
 
@@ -136,11 +183,24 @@ export function useFeeStructures() {
     if (updates.feeType !== undefined) mapped.fee_type = updates.feeType;
     if (updates.amount !== undefined) mapped.amount = updates.amount;
     await supabase.from("fee_structures").update(mapped).eq("id", id);
+    await writeAppLog({
+      action: "fee_structure_updated",
+      entityType: "fee_structure",
+      entityId: id,
+      message: `Updated fee structure ${id}`,
+      details: updates as Record<string, unknown>,
+    });
     await fetchFees();
   }, [fetchFees]);
 
   const deleteFee = useCallback(async (id: string) => {
     await supabase.from("fee_structures").delete().eq("id", id);
+    await writeAppLog({
+      action: "fee_structure_deleted",
+      entityType: "fee_structure",
+      entityId: id,
+      message: `Deleted fee structure ${id}`,
+    });
     await fetchFees();
   }, [fetchFees]);
 
@@ -200,6 +260,18 @@ export function usePayments() {
       .single();
     await fetchPayments();
     if (data) {
+      await writeAppLog({
+        action: "payment_created",
+        entityType: "payment",
+        entityId: data.id,
+        message: `Recorded ${payment.feeType} payment`,
+        details: {
+          studentId: payment.studentId,
+          amountPaid: payment.amountPaid,
+          feeMonth: payment.feeMonth,
+          paymentMode: payment.paymentMode,
+        },
+      });
       return {
         id: data.id,
         studentId: data.student_id,
@@ -232,13 +304,30 @@ export function usePayments() {
     if (updates.proofImageUrl !== undefined) mapped.proof_image_url = updates.proofImageUrl;
 
     const { error } = await supabase.from("payments").update(mapped).eq("id", id);
-    if (!error) await fetchPayments();
+    if (!error) {
+      await writeAppLog({
+        action: "payment_updated",
+        entityType: "payment",
+        entityId: id,
+        message: `Updated payment ${id}`,
+        details: updates as Record<string, unknown>,
+      });
+      await fetchPayments();
+    }
     return error;
   }, [fetchPayments]);
 
   const deletePayment = useCallback(async (id: string) => {
     const { error } = await supabase.from("payments").delete().eq("id", id);
-    if (!error) await fetchPayments();
+    if (!error) {
+      await writeAppLog({
+        action: "payment_deleted",
+        entityType: "payment",
+        entityId: id,
+        message: `Deleted payment ${id}`,
+      });
+      await fetchPayments();
+    }
     return error;
   }, [fetchPayments]);
 
@@ -295,7 +384,19 @@ export function useStudentPaymentSubmissions() {
       notes: submission.notes,
       submitted_by: submission.submittedBy,
     });
-    if (!error) await fetchSubmissions();
+    if (!error) {
+      await writeAppLog({
+        action: "payment_submission_created",
+        entityType: "student_payment_submission",
+        message: `Created student payment submission for ${submission.feeMonth}`,
+        details: {
+          feeMonth: submission.feeMonth,
+          amountSubmitted: submission.amountSubmitted,
+          paymentMode: submission.paymentMode,
+        },
+      });
+      await fetchSubmissions();
+    }
     return error;
   }, [fetchSubmissions]);
 
@@ -318,7 +419,16 @@ export function useStudentPaymentSubmissions() {
       .from("student_payment_submissions")
       .update(updates)
       .eq("id", id);
-    if (!error) await fetchSubmissions();
+    if (!error) {
+      await writeAppLog({
+        action: "payment_submission_updated",
+        entityType: "student_payment_submission",
+        entityId: id,
+        message: `Updated student payment submission ${id}`,
+        details: submission as Record<string, unknown>,
+      });
+      await fetchSubmissions();
+    }
     return error;
   }, [fetchSubmissions]);
 

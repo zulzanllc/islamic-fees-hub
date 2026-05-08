@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTeachers, useTeacherAttendance } from "@/store/useTeacherStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,7 +17,23 @@ export default function TeacherAttendance() {
   const { attendance, loading, addAttendance, updateAttendance } = useTeacherAttendance();
   const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
+  const [teacherSearch, setTeacherSearch] = useState("");
   const [form, setForm] = useState({ teacherId: "", date: format(new Date(), "yyyy-MM-dd"), timeIn: "", timeOut: "", notes: "" });
+
+  const activeTeachers = useMemo(
+    () => teachers.filter((teacher) => teacher.status === "active"),
+    [teachers]
+  );
+  const filteredActiveTeachers = useMemo(() => {
+    const query = teacherSearch.trim().toLowerCase();
+    if (!query) return activeTeachers;
+
+    return activeTeachers.filter((teacher) =>
+      teacher.name.toLowerCase().includes(query) ||
+      teacher.contact.toLowerCase().includes(query) ||
+      teacher.cnic.toLowerCase().includes(query)
+    );
+  }, [activeTeachers, teacherSearch]);
 
   const handleSubmit = async () => {
     if (!form.teacherId) { toast.error("Select a teacher"); return; }
@@ -27,6 +43,7 @@ export default function TeacherAttendance() {
     });
     toast.success("Attendance recorded");
     setOpen(false);
+    setTeacherSearch("");
     setForm({ teacherId: "", date: format(new Date(), "yyyy-MM-dd"), timeIn: "", timeOut: "", notes: "" });
   };
 
@@ -39,7 +56,13 @@ export default function TeacherAttendance() {
           <h1 className="text-2xl font-bold text-foreground">Teacher Attendance</h1>
           <p className="text-sm text-muted-foreground">Record daily in/out timings</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+            if (!nextOpen) setTeacherSearch("");
+          }}
+        >
           {permissions.canEditTeachers && (
             <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Record Attendance</Button></DialogTrigger>
           )}
@@ -47,11 +70,37 @@ export default function TeacherAttendance() {
             <DialogHeader><DialogTitle>Record Attendance</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div><Label>Teacher</Label>
-                <Select value={form.teacherId} onValueChange={(v) => setForm({ ...form, teacherId: v })}>
+                <Select
+                  value={form.teacherId}
+                  onValueChange={(v) => {
+                    setForm({ ...form, teacherId: v });
+                    setTeacherSearch("");
+                  }}
+                >
                   <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
-                  <SelectContent>{teachers.filter((t) => t.status === "active").map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}</SelectContent>
+                  <SelectContent>
+                    <div className="sticky top-0 z-10 bg-popover p-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={teacherSearch}
+                          onChange={(e) => setTeacherSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder="Search teacher..."
+                          className="h-9 pl-8"
+                        />
+                      </div>
+                    </div>
+                    {activeTeachers.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No active teachers found.</p>
+                    )}
+                    {activeTeachers.length > 0 && filteredActiveTeachers.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No teachers found.</p>
+                    )}
+                    {filteredActiveTeachers.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>

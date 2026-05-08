@@ -13,13 +13,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BarChart, Bar, XAxis, YAxis } from "recharts";
-import { useTeachers, useTeacherSalaries, useTeacherLoans } from "@/store/useTeacherStore";
+import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherSalarySettings } from "@/store/useTeacherStore";
 import { useTeacherAdvances } from "@/store/useTeacherAdvances";
-import { Briefcase, Banknote, Clock, AlertCircle, DollarSign, CreditCard } from "lucide-react";
-import { format, subMonths } from "date-fns";
+import { Briefcase, Banknote, Clock, AlertCircle, CreditCard, Search, Landmark, Wallet } from "lucide-react";
+import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { toast } from "sonner";
 import { getProratedMonthlyAmount } from "@/lib/proration";
+import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
+import { DashboardDateFilter } from "@/components/DashboardDateFilter";
+import {
+  createDefaultDashboardDateFilter,
+  getDashboardDateRange,
+  getMonthKeysInRange,
+  getRangeChartMonths,
+  isDateInDashboardRange,
+  isDateOnOrBefore,
+  isPersonActiveInRange,
+} from "@/lib/dashboardDateRange";
 
 const salaryChartConfig: ChartConfig = {
   salary: { label: "Salaries", color: "hsl(220 60% 50%)" },
@@ -29,50 +40,89 @@ export default function TeacherDashboard() {
   const { teachers } = useTeachers();
   const { salaries } = useTeacherSalaries();
   const { loans } = useTeacherLoans();
+  const { settings } = useTeacherSalarySettings();
   const { advances, addAdvance } = useTeacherAdvances();
 
+  const [dateFilter, setDateFilter] = useState(createDefaultDashboardDateFilter);
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [advanceForm, setAdvanceForm] = useState({ teacherId: "", amount: 0, notes: "", paymentMode: "cash" as "cash" | "online", proofImageUrl: "" });
+  const [advanceTeacherSearch, setAdvanceTeacherSearch] = useState("");
 
   const currentMonth = format(new Date(), "yyyy-MM");
-  const currentYear = new Date().getFullYear().toString();
+  const range = useMemo(() => getDashboardDateRange(dateFilter), [dateFilter]);
+  const rangeMonths = useMemo(() => getMonthKeysInRange(range), [range]);
 
   const activeTeachers = teachers.filter((t) => t.status === "active");
-  const teachersPaidThisMonth = new Set(
-    salaries.filter((s) => s.month === currentMonth).map((s) => s.teacherId)
+  const teachersInRange = useMemo(
+    () => teachers.filter((teacher) => isPersonActiveInRange(teacher.joiningDate, teacher.status, range)),
+    [teachers, range]
   );
-  const pendingTeachers = activeTeachers.filter(
-    (t) => !teachersPaidThisMonth.has(t.id) && getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth) > 0
-  );
-  const totalPendingSalary = pendingTeachers.reduce(
-    (s, t) => s + getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth),
-    0
+  const filteredAdvanceTeachers = useMemo(() => {
+    const query = advanceTeacherSearch.trim().toLowerCase();
+    if (!query) return activeTeachers;
+    return activeTeachers.filter((teacher) =>
+      teacher.name.toLowerCase().includes(query) ||
+      teacher.contact.toLowerCase().includes(query) ||
+      teacher.cnic.toLowerCase().includes(query)
+    );
+  }, [activeTeachers, advanceTeacherSearch]);
+  const salariesInRange = useMemo(
+    () => salaries.filter((salary) => isDateInDashboardRange(salary.datePaid, range)),
+    [salaries, range]
   );
 
-  const totalSalaryIssuedThisMonth = salaries
-    .filter((s) => s.month === currentMonth)
-    .reduce((s, sal) => s + sal.netPaid, 0);
-  const totalSalaryIssuedThisYear = salaries
-    .filter((s) => s.datePaid.startsWith(currentYear))
-    .reduce((s, sal) => s + sal.netPaid, 0);
+  const pendingSalaryData = useMemo(() => {
+    const salaryPaidByTeacher = new Map<string, number>();
+    salaries
+      .filter((salary) => rangeMonths.includes(salary.month))
+      .forEach((salary) => {
+        salaryPaidByTeacher.set(salary.teacherId, (salaryPaidByTeacher.get(salary.teacherId) ?? 0) + salary.netPaid);
+      });
+
+    return teachersInRange
+      .map((teacher) => {
+        const expectedSalary = rangeMonths.reduce(
+          (sum, month) =>
+            sum +
+            getProratedMonthlyAmount(
+              getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, month, settings.annualIncrementPercentage),
+              teacher.joiningDate,
+              month
+            ),
+          0
+        );
+        const paidSalary = salaryPaidByTeacher.get(teacher.id) ?? 0;
+        const pendingSalary = Math.max(0, expectedSalary - paidSalary);
+
+        return { teacher, expectedSalary, paidSalary, pendingSalary };
+      })
+      .filter((item) => item.pendingSalary > 0);
+  }, [salaries, rangeMonths, teachersInRange, settings.annualIncrementPercentage]);
+
+  const totalPendingSalary = pendingSalaryData.reduce((sum, item) => sum + item.pendingSalary, 0);
+
+  const totalSalaryIssued = salariesInRange.reduce((s, sal) => s + sal.netPaid, 0);
+  const totalSalaryPaidCash = salariesInRange
+    .filter((s) => s.paymentMode === "cash")
+    .reduce((sum, salary) => sum + salary.netPaid, 0);
+  const totalSalaryPaidOnline = salariesInRange
+    .filter((s) => s.paymentMode === "online")
+    .reduce((sum, salary) => sum + salary.netPaid, 0);
 
   const activeLoansTotal = loans
-    .filter((l) => l.status === "active")
+    .filter((l) => l.status === "active" && isDateOnOrBefore(l.dateIssued, range.end))
     .reduce((s, l) => s + l.remaining, 0);
 
   const salaryChartData = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 6 }, (_, i) => {
-      const month = subMonths(now, 5 - i);
-      const monthStr = format(month, "yyyy-MM");
-      const salary = salaries.filter((s) => s.month === monthStr).reduce((sum, s) => sum + s.netPaid, 0);
-      return { month: format(month, "MMM"), salary };
+    return getRangeChartMonths(range).map((month) => {
+      const salary = salaries.filter((s) => s.month === month.value).reduce((sum, s) => sum + s.netPaid, 0);
+      return { month: month.label, salary };
     });
-  }, [salaries]);
+  }, [salaries, range]);
 
   const recentSalaries = useMemo(
-    () => [...salaries].sort((a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()).slice(0, 5),
-    [salaries]
+    () => [...salariesInRange].sort((a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()).slice(0, 5),
+    [salariesInRange]
   );
 
   const getTeacherName = (id: string) => teachers.find((t) => t.id === id)?.name ?? "Unknown";
@@ -87,7 +137,12 @@ export default function TeacherDashboard() {
     const existingAdvances = advances
       .filter((advance) => advance.teacherId === advanceForm.teacherId && advance.month === currentMonth)
       .reduce((sum, advance) => sum + advance.amount, 0);
-    const remaining = getProratedMonthlyAmount(teacher.monthlySalary, teacher.joiningDate, currentMonth) - existingAdvances;
+    const remaining =
+      getProratedMonthlyAmount(
+        getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, currentMonth, settings.annualIncrementPercentage),
+        teacher.joiningDate,
+        currentMonth
+      ) - existingAdvances;
     if (advanceForm.amount > remaining) {
       toast.error(`Maximum advance available: ${formatPKR(remaining)} (already advanced: ${formatPKR(existingAdvances)})`);
       return;
@@ -108,25 +163,36 @@ export default function TeacherDashboard() {
   };
 
   const teacherCards = [
-    { title: "Active Teachers", value: activeTeachers.length, icon: Briefcase, color: "text-primary" },
-    { title: "Pending Salaries", value: `${pendingTeachers.length} teacher${pendingTeachers.length !== 1 ? "s" : ""}`, icon: Clock, color: "text-destructive" },
+    { title: "Teachers in Range", value: teachersInRange.length, icon: Briefcase, color: "text-primary" },
+    { title: "Pending Salaries", value: `${pendingSalaryData.length} teacher${pendingSalaryData.length !== 1 ? "s" : ""}`, icon: Clock, color: "text-destructive" },
     { title: "Pending Amount", value: formatPKR(totalPendingSalary), icon: AlertCircle, color: "text-destructive" },
-    { title: "Paid This Month", value: formatPKR(totalSalaryIssuedThisMonth), icon: Banknote, color: "text-primary" },
-    { title: "Paid This Year", value: formatPKR(totalSalaryIssuedThisYear), icon: DollarSign, color: "text-primary" },
+    { title: "Paid in Range", value: formatPKR(totalSalaryIssued), icon: Banknote, color: "text-primary" },
+    { title: "Paid in Cash", value: formatPKR(totalSalaryPaidCash), icon: Wallet, color: "text-primary" },
+    { title: "Paid Online", value: formatPKR(totalSalaryPaidOnline), icon: Landmark, color: "text-primary" },
     { title: "Outstanding Loans", value: formatPKR(activeLoansTotal), icon: CreditCard, color: "text-destructive" },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Teacher Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of teacher salaries & loans</p>
+          <p className="text-sm text-muted-foreground">Overview of teacher salaries & loans for {range.label}</p>
         </div>
-        <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" variant="outline"><Banknote className="h-4 w-4 mr-1" /> Issue Advance Salary</Button>
-          </DialogTrigger>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <DashboardDateFilter value={dateFilter} onChange={setDateFilter} />
+          <Dialog
+            open={advanceOpen}
+            onOpenChange={(nextOpen) => {
+              setAdvanceOpen(nextOpen);
+              if (!nextOpen) {
+                setAdvanceTeacherSearch("");
+              }
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline"><Banknote className="h-4 w-4 mr-1" /> Issue Advance Salary</Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Issue Advance Salary</DialogTitle></DialogHeader>
             <p className="text-sm text-muted-foreground">
@@ -138,7 +204,25 @@ export default function TeacherDashboard() {
                 <Select value={advanceForm.teacherId} onValueChange={(v) => setAdvanceForm({ ...advanceForm, teacherId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
                   <SelectContent>
-                    {activeTeachers.map((t) => (
+                    <div className="sticky top-0 z-10 bg-popover p-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={advanceTeacherSearch}
+                          onChange={(e) => setAdvanceTeacherSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder="Search teacher..."
+                          className="h-9 pl-8"
+                        />
+                      </div>
+                    </div>
+                    {activeTeachers.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No active teachers found.</p>
+                    )}
+                    {activeTeachers.length > 0 && filteredAdvanceTeachers.length === 0 && (
+                      <p className="text-sm text-muted-foreground p-2 text-center">No teachers found.</p>
+                    )}
+                    {filteredAdvanceTeachers.map((t) => (
                       <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -146,7 +230,13 @@ export default function TeacherDashboard() {
               </div>
               {advanceForm.teacherId && (() => {
                 const teacher = teachers.find((t) => t.id === advanceForm.teacherId);
-                const base = teacher ? getProratedMonthlyAmount(teacher.monthlySalary, teacher.joiningDate, currentMonth) : 0;
+                const base = teacher
+                  ? getProratedMonthlyAmount(
+                      getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, currentMonth, settings.annualIncrementPercentage),
+                      teacher.joiningDate,
+                      currentMonth
+                    )
+                  : 0;
                 const existingAdvances = advances
                   .filter((advance) => advance.teacherId === advanceForm.teacherId && advance.month === currentMonth)
                   .reduce((sum, advance) => sum + advance.amount, 0);
@@ -187,10 +277,11 @@ export default function TeacherDashboard() {
               <Button className="w-full" onClick={handleAdvanceSalary}>Issue Advance</Button>
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {teacherCards.map((card) => (
           <Card key={card.title}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -204,7 +295,7 @@ export default function TeacherDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader><CardTitle className="text-lg">Salary Disbursement (Last 6 Months)</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-lg">Salary Disbursement ({range.label})</CardTitle></CardHeader>
           <CardContent>
             <ChartContainer config={salaryChartConfig} className="h-[250px] w-full">
               <BarChart data={salaryChartData}>
@@ -218,20 +309,20 @@ export default function TeacherDashboard() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-lg">Pending Salary Teachers</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-lg">Pending Salary Teachers ({range.label})</CardTitle></CardHeader>
           <CardContent>
-            {pendingTeachers.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">All teachers paid for this month!</p>
+            {pendingSalaryData.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">All teachers paid for this period!</p>
             ) : (
               <div className="space-y-3">
-                {pendingTeachers.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                {pendingSalaryData.map(({ teacher, pendingSalary }) => (
+                  <div key={teacher.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div>
-                      <p className="text-sm font-medium">{t.name}</p>
-                      <p className="text-xs text-muted-foreground">Since {t.joiningDate}</p>
+                      <p className="text-sm font-medium">{teacher.name}</p>
+                      <p className="text-xs text-muted-foreground">Since {teacher.joiningDate}</p>
                     </div>
                     <span className="text-sm font-semibold text-destructive">
-                      {formatPKR(getProratedMonthlyAmount(t.monthlySalary, t.joiningDate, currentMonth))}
+                      {formatPKR(pendingSalary)}
                     </span>
                   </div>
                 ))}
@@ -242,7 +333,7 @@ export default function TeacherDashboard() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg">Recent Salary Payments</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-lg">Recent Salary Payments ({range.label})</CardTitle></CardHeader>
         <CardContent>
           {recentSalaries.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No salary payments recorded yet.</p>

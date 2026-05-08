@@ -8,6 +8,7 @@ import {
   LogOut,
   GraduationCap,
   Wallet,
+  Banknote,
   HandCoins,
   Clock,
   Shield,
@@ -15,6 +16,7 @@ import {
   AlertCircle,
   Send,
   UserMinus,
+  FileClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +46,7 @@ const teacherNav = [
   { title: "Dashboard", url: "/teacher-dashboard", icon: LayoutDashboard },
   { title: "Teachers", url: "/teachers", icon: GraduationCap },
   { title: "Salaries", url: "/teacher-salaries", icon: Wallet },
+  { title: "Advance Salary", url: "/teacher-advances", icon: Banknote },
   { title: "Pending Salaries", url: "/pending-salaries", icon: AlertCircle },
   { title: "Loans", url: "/teacher-loans", icon: HandCoins },
   { title: "Attendance", url: "/teacher-attendance", icon: Clock },
@@ -52,6 +55,7 @@ const teacherNav = [
 
 const adminNav = [
   { title: "Role Management", url: "/roles", icon: Shield },
+  { title: "Logs", url: "/logs", icon: FileClock },
 ];
 
 export function AppSidebar() {
