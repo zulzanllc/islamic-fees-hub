@@ -263,6 +263,10 @@ export default function Payments() {
   const getStudentName = (id: string) =>
     students.find((s) => s.id === id)?.name ?? "Unknown";
   const getStudent = (id: string) => students.find((s) => s.id === id);
+  const formatPaymentMode = (mode?: string) =>
+    (mode || "cash")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   const filteredStudentsForSelect = students
     .filter((student) => {
       const query = studentSearch.trim().toLowerCase();
@@ -321,6 +325,7 @@ export default function Payments() {
             <div class="section-title">Payment Details</div>
             <div class="row"><span class="label">Receipt #</span><span class="value">${payment.receiptNumber}</span></div>
             <div class="row"><span class="label">Payment Date</span><span class="value">${payment.date}</span></div>
+            <div class="row"><span class="label">Payment Mode</span><span class="value">${formatPaymentMode(payment.paymentMode)}</span></div>
             <div class="row"><span class="label">Fee Month</span><span class="value">${formatFeeMonth(payment.feeMonth) || "—"}</span></div>
             <div class="row"><span class="label">Fee Type</span><span class="value" style="text-transform:capitalize">${payment.feeType}</span></div>
             ${payment.notes ? `<div class="row"><span class="label">Notes</span><span class="value">${payment.notes}</span></div>` : ""}
@@ -371,8 +376,9 @@ export default function Payments() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["Date", "Fee Month", "Student", "Fee Type", "Amount", "Receipt #", "Notes"];
-              const rows = sortedPayments.map((p) => [
+              const headers = ["S.No", "Date", "Fee Month", "Student", "Fee Type", "Amount", "Receipt #", "Notes"];
+              const rows = sortedPayments.map((p, index) => [
+                String(index + 1),
                 p.date,
                 p.feeMonth,
                 getStudentName(p.studentId),
@@ -607,6 +613,7 @@ export default function Payments() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>S.No</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Fee Month</TableHead>
                 <TableHead>Student</TableHead>
@@ -622,15 +629,16 @@ export default function Payments() {
               {filteredPayments.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={10}
                     className="text-center py-8 text-muted-foreground"
                   >
                     No payments recorded yet.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPayments.map((p) => (
+                filteredPayments.map((p, index) => (
                   <TableRow key={p.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell>{p.date}</TableCell>
                     <TableCell>{formatFeeMonth(p.feeMonth)}</TableCell>
                     <TableCell className="font-medium">

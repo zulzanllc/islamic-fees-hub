@@ -441,11 +441,12 @@ export default function TeacherLoans() {
           {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : loans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans recorded.</p> : filteredLoans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans match that teacher name.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
+                <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {filteredLoans.map((l) => (
+                {filteredLoans.map((l, index) => (
                   <TableRow key={l.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="font-medium">{getTeacherName(l.teacherId)}</TableCell>
                     <TableCell>{formatPKR(l.amount)}</TableCell>
                     <TableCell className={l.remaining > 0 ? "text-destructive font-semibold" : "text-primary"}>{formatPKR(l.remaining)}</TableCell>
@@ -584,11 +585,12 @@ export default function TeacherLoans() {
           {bonusesLoading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : bonuses.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No bonuses recorded.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Month</TableHead><TableHead>Date</TableHead><TableHead>Mode</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
+                <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Month</TableHead><TableHead>Date</TableHead><TableHead>Mode</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {bonuses.map((bonus) => (
+                {bonuses.map((bonus, index) => (
                   <TableRow key={bonus.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="font-medium">{getTeacherName(bonus.teacherId)}</TableCell>
                     <TableCell className="font-semibold text-primary">{formatPKR(bonus.amount)}</TableCell>
                     <TableCell>{bonus.month}</TableCell>

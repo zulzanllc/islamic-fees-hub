@@ -28,6 +28,11 @@ export default function Receipts() {
   const getStudentClass = (id: string) =>
     students.find((s) => s.id === id)?.classGrade ?? "—";
 
+  const formatPaymentMode = (mode?: string) =>
+    (mode || "cash")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
   const sortedPayments = [...payments]
     .filter((p) =>
       searchQuery === "" ||
@@ -77,6 +82,7 @@ export default function Receipts() {
           <div class="details">
             <div class="row"><span class="label">Receipt #</span><span class="value">${payment.receiptNumber}</span></div>
             <div class="row"><span class="label">Date</span><span class="value">${payment.date}</span></div>
+            <div class="row"><span class="label">Payment Mode</span><span class="value">${formatPaymentMode(payment.paymentMode)}</span></div>
             <div class="row"><span class="label">Student</span><span class="value">${student?.name ?? "Unknown"}</span></div>
             <div class="row"><span class="label">Class</span><span class="value">${student?.classGrade ?? "—"}</span></div>
             <div class="row"><span class="label">Fee Month</span><span class="value">${formatFeeMonth(payment.feeMonth)}</span></div>
@@ -117,6 +123,7 @@ export default function Receipts() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>S.No</TableHead>
                 <TableHead>Receipt #</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Student</TableHead>
@@ -129,13 +136,14 @@ export default function Receipts() {
             <TableBody>
               {sortedPayments.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     No receipts available.
                   </TableCell>
                 </TableRow>
               ) : (
-                sortedPayments.map((p) => (
+                sortedPayments.map((p, index) => (
                   <TableRow key={p.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="font-mono text-xs">
                       {p.receiptNumber}
                     </TableCell>

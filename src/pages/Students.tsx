@@ -169,8 +169,8 @@ export default function Students() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["Code", "Name", "Guardian", "Class", "Monthly Fee", "Pending Fees", "Contact", "Joining Date", "Leaving Date", "Status"];
-              const rows = filtered.map((s) => [s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), String(s.openingDueAmount ?? 0), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
+              const headers = ["S.No", "Code", "Name", "Guardian", "Class", "Monthly Fee", "Pending Fees", "Contact", "Joining Date", "Leaving Date", "Status"];
+              const rows = filtered.map((s, index) => [String(index + 1), s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), String(s.openingDueAmount ?? 0), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
               downloadCSV("students.csv", headers, rows, {
                 delimiter: "\t",
                 encoding: "utf-16le",
@@ -405,6 +405,7 @@ export default function Students() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>S.No</TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Guardian</TableHead>
@@ -421,13 +422,14 @@ export default function Students() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                     No students found.
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((s) => (
+                filtered.map((s, index) => (
                   <TableRow key={s.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="text-xs text-muted-foreground font-mono">{s.studentCode}</TableCell>
                     <TableCell className="font-medium">{s.name}</TableCell>
                     <TableCell>{s.guardianName}</TableCell>

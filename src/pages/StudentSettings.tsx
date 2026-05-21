@@ -276,6 +276,7 @@ export default function Settings() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>S.No</TableHead>
                     <TableHead>Student</TableHead>
                     <TableHead>Class</TableHead>
                     <TableHead>Current Fee</TableHead>
@@ -284,10 +285,11 @@ export default function Settings() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {affectedStudents.map((student) => {
+                  {affectedStudents.map((student, index) => {
                     const newAmt = getNewAmount(student.monthlyFee);
                     return (
                       <TableRow key={student.id}>
+                        <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                         <TableCell className="font-medium">{student.name}</TableCell>
                         <TableCell>{student.classGrade}</TableCell>
                         <TableCell>{formatPKR(student.monthlyFee)}</TableCell>

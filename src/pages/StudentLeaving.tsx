@@ -315,6 +315,7 @@ export default function StudentLeaving() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>S.No</TableHead>
                 <TableHead>Student</TableHead>
                 <TableHead>Class</TableHead>
                 <TableHead>Joining Date</TableHead>
@@ -324,13 +325,14 @@ export default function StudentLeaving() {
             <TableBody>
               {leftStudents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                     No left students recorded yet.
                   </TableCell>
                 </TableRow>
               ) : (
-                leftStudents.slice(0, 10).map((student) => (
+                leftStudents.slice(0, 10).map((student, index) => (
                   <TableRow key={student.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell>
                       <span className="font-medium">{student.name}</span>
                       <p className="text-xs text-muted-foreground">{student.studentCode}</p>

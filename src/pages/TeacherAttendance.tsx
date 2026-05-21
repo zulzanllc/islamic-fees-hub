@@ -119,11 +119,12 @@ export default function TeacherAttendance() {
           {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : attendance.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No attendance recorded.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Teacher</TableHead><TableHead>Date</TableHead><TableHead>Time In</TableHead><TableHead>Time Out</TableHead><TableHead>Notes</TableHead>
+                <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Date</TableHead><TableHead>Time In</TableHead><TableHead>Time Out</TableHead><TableHead>Notes</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {attendance.map((a) => (
+                {attendance.map((a, index) => (
                   <TableRow key={a.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="font-medium">{getTeacherName(a.teacherId)}</TableCell>
                     <TableCell>{a.date}</TableCell>
                     <TableCell>{a.timeIn ?? "—"}</TableCell>

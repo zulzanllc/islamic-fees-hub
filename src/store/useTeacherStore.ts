@@ -174,7 +174,7 @@ export function useTeacherSalaries() {
       setSalaries(data.map((s: any) => ({
         id: s.id, teacherId: s.teacher_id, month: s.month,
         baseSalary: Number(s.base_salary), loanDeduction: Number(s.loan_deduction),
-        otherDeduction: Number(s.other_deduction), netPaid: Number(s.net_paid),
+        otherDeduction: Number(s.other_deduction), bonusAmount: Number(s.bonus_amount || 0), netPaid: Number(s.net_paid),
         datePaid: s.date_paid, notes: s.notes,
         paymentMode: s.payment_mode || "cash",
         receiptUrl: s.receipt_url || "",
@@ -188,15 +188,30 @@ export function useTeacherSalaries() {
   useEffect(() => { fetchSalaries(); }, [fetchSalaries]);
 
   const addSalary = useCallback(async (salary: Omit<TeacherSalary, "id">) => {
-    await supabase.from("teacher_salaries").insert({
+    const salaryRow = {
       teacher_id: salary.teacherId, month: salary.month, base_salary: salary.baseSalary,
       loan_deduction: salary.loanDeduction, other_deduction: salary.otherDeduction,
-      net_paid: salary.netPaid, date_paid: salary.datePaid, notes: salary.notes,
+      bonus_amount: salary.bonusAmount || 0, net_paid: salary.netPaid, date_paid: salary.datePaid, notes: salary.notes,
       payment_mode: salary.paymentMode || "cash",
       receipt_url: salary.receiptUrl || "",
       proof_image_url: salary.proofImageUrl || "",
       custom_amount: salary.customAmount || 0,
-    } as any);
+    };
+
+    let { error } = await supabase.from("teacher_salaries").insert(salaryRow as any);
+    const missingBonusColumn =
+      error &&
+      (error.code === "PGRST204" || error.code === "42703") &&
+      error.message.toLowerCase().includes("bonus_amount");
+
+    if (missingBonusColumn && !salary.bonusAmount) {
+      const { bonus_amount, ...fallbackSalaryRow } = salaryRow;
+      const fallbackResult = await supabase.from("teacher_salaries").insert(fallbackSalaryRow as any);
+      error = fallbackResult.error;
+    }
+
+    if (error) throw error;
+
     await writeAppLog({
       action: "teacher_salary_created",
       entityType: "teacher_salary",
@@ -216,6 +231,7 @@ export function useTeacherSalaries() {
     if (updates.baseSalary !== undefined) mapped.base_salary = updates.baseSalary;
     if (updates.loanDeduction !== undefined) mapped.loan_deduction = updates.loanDeduction;
     if (updates.otherDeduction !== undefined) mapped.other_deduction = updates.otherDeduction;
+    if (updates.bonusAmount !== undefined) mapped.bonus_amount = updates.bonusAmount;
     if (updates.netPaid !== undefined) mapped.net_paid = updates.netPaid;
     if (updates.datePaid !== undefined) mapped.date_paid = updates.datePaid;
     if (updates.notes !== undefined) mapped.notes = updates.notes;

@@ -186,9 +186,9 @@ export default function PendingFees() {
             const monthLabel = monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
             downloadCSV(
               `pending-fees-${selectedMonth}.csv`,
-              ["Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Leaving Date", "Expected", "Paid", "Pending", "Status"],
-              pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }) => [
-                student.name, student.studentCode, student.classGrade, student.guardianName, student.contact,
+              ["S.No", "Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Leaving Date", "Expected", "Paid", "Pending", "Status"],
+              pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }, index) => [
+                String(index + 1), student.name, student.studentCode, student.classGrade, student.guardianName, student.contact,
                 student.enrollmentDate, student.leavingDate ?? "", String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
               ])
             );
@@ -295,6 +295,7 @@ export default function PendingFees() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">S.No</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Student</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Class</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Guardian</th>
@@ -308,8 +309,9 @@ export default function PendingFees() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated, nextPendingFee }) => (
+                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated, nextPendingFee }, index) => (
                     <tr key={student.id} className="border-b border-border last:border-0 hover:bg-muted/50">
+                      <td className="py-3 px-2 text-xs text-muted-foreground font-mono">{index + 1}</td>
                       <td className="py-3 px-2">
                         <Link to={`/students/${student.id}`} className="font-medium text-primary hover:underline">
                           {student.name}

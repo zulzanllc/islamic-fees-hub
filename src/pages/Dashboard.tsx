@@ -173,10 +173,13 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground py-8 text-center">No payments recorded yet.</p>
             ) : (
               <div className="space-y-3">
-                {recentPayments.map((p) => (
+                {recentPayments.map((p, index) => (
                   <div key={p.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div>
-                      <p className="text-sm font-medium">{getStudentName(p.studentId)}</p>
+                      <p className="text-sm font-medium">
+                        <span className="text-xs text-muted-foreground font-mono mr-2">{index + 1}.</span>
+                        {getStudentName(p.studentId)}
+                      </p>
                       <p className="text-xs text-muted-foreground capitalize">{p.feeType} · {p.date}</p>
                     </div>
                     <span className="text-sm font-semibold text-primary">{formatPKR(p.amountPaid)}</span>

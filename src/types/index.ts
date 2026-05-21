@@ -79,6 +79,7 @@ export interface TeacherSalary {
   baseSalary: number;
   loanDeduction: number;
   otherDeduction: number;
+  bonusAmount: number;
   netPaid: number;
   datePaid: string;
   notes: string;

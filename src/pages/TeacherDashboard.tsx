@@ -21,6 +21,7 @@ import { formatPKR } from "@/lib/currency";
 import { toast } from "sonner";
 import { getProratedMonthlyAmount } from "@/lib/proration";
 import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
+import { getTeacherPendingSalaryDetails } from "@/lib/teacherPendingSalary";
 import { DashboardDateFilter } from "@/components/DashboardDateFilter";
 import {
   createDefaultDashboardDateFilter,
@@ -72,32 +73,26 @@ export default function TeacherDashboard() {
   );
 
   const pendingSalaryData = useMemo(() => {
-    const salaryPaidByTeacher = new Map<string, number>();
-    salaries
-      .filter((salary) => rangeMonths.includes(salary.month))
-      .forEach((salary) => {
-        salaryPaidByTeacher.set(salary.teacherId, (salaryPaidByTeacher.get(salary.teacherId) ?? 0) + salary.netPaid);
-      });
-
     return teachersInRange
       .map((teacher) => {
-        const expectedSalary = rangeMonths.reduce(
-          (sum, month) =>
-            sum +
-            getProratedMonthlyAmount(
-              getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, month, settings.annualIncrementPercentage),
-              teacher.joiningDate,
-              month
-            ),
-          0
+        const monthDetails = rangeMonths.map((month) =>
+          getTeacherPendingSalaryDetails({
+            teacher,
+            month,
+            salaries,
+            loans,
+            advances,
+            annualIncrementPercentage: settings.annualIncrementPercentage,
+          })
         );
-        const paidSalary = salaryPaidByTeacher.get(teacher.id) ?? 0;
-        const pendingSalary = Math.max(0, expectedSalary - paidSalary);
+        const expectedSalary = monthDetails.reduce((sum, details) => sum + details.expectedSalary, 0);
+        const paidSalary = monthDetails.reduce((sum, details) => sum + details.paidAmount, 0);
+        const pendingSalary = monthDetails.reduce((sum, details) => sum + details.pendingAmount, 0);
 
         return { teacher, expectedSalary, paidSalary, pendingSalary };
       })
       .filter((item) => item.pendingSalary > 0);
-  }, [salaries, rangeMonths, teachersInRange, settings.annualIncrementPercentage]);
+  }, [salaries, loans, advances, rangeMonths, teachersInRange, settings.annualIncrementPercentage]);
 
   const totalPendingSalary = pendingSalaryData.reduce((sum, item) => sum + item.pendingSalary, 0);
 

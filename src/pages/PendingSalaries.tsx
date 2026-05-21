@@ -16,8 +16,7 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Teacher } from "@/types";
-import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
-import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
+import { getTeacherPendingSalaryDetails } from "@/lib/teacherPendingSalary";
 import { useAuth } from "@/hooks/useAuth";
 import ProofUpload from "@/components/ProofUpload";
 
@@ -44,6 +43,7 @@ export default function PendingSalaries() {
     loanDeduction: number;
     baseSalary: number;
     advanceTaken: number;
+    otherDeduction: number;
     expectedSalary: number;
     paidAmount: number;
     prorated: boolean;
@@ -69,6 +69,7 @@ export default function PendingSalaries() {
       loanDeduction: pendingDetails.loanDeduction,
       baseSalary: pendingDetails.baseSalary,
       advanceTaken: pendingDetails.advanceTaken,
+      otherDeduction: pendingDetails.otherDeduction,
       expectedSalary: pendingDetails.expectedSalary,
       paidAmount: pendingDetails.paidAmount,
       prorated: pendingDetails.prorated,
@@ -104,8 +105,9 @@ export default function PendingSalaries() {
         teacherId: payTeacher.teacher.id,
         month: selectedMonth,
         baseSalary: payTeacher.baseSalary,
-        loanDeduction: payTeacher.loanDeduction,
+        loanDeduction: payTeacher.loanDeduction + payTeacher.advanceTaken,
         otherDeduction: 0,
+        bonusAmount: 0,
         netPaid: amount,
         datePaid: format(new Date(), "yyyy-MM-dd"),
         notes: payNotes,
@@ -137,138 +139,18 @@ export default function PendingSalaries() {
   );
 
   const pendingData = useMemo(() => {
-    const paidTeachers = new Map<string, number>();
-    salaries
-      .filter((s) => s.month === selectedMonth)
-      .forEach((s) => {
-        paidTeachers.set(s.teacherId, (paidTeachers.get(s.teacherId) ?? 0) + s.netPaid);
-      });
-
-    return activeTeachers.map((teacher) => {
-      const effectiveMonthlySalary = getEffectiveTeacherMonthlySalary(
-        teacher.monthlySalary,
-        teacher.joiningDate,
-        selectedMonth,
-        settings.annualIncrementPercentage
-      );
-      const baseSalary = getProratedMonthlyAmount(
-        effectiveMonthlySalary,
-        teacher.joiningDate,
-        selectedMonth
-      );
-      const activeLoans = loans.filter((l) => l.teacherId === teacher.id && l.status === "active");
-      const loanBreakdown = activeLoans.map((loan) => {
-        if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
-          return {
-            id: loan.id,
-            amount: loan.amount,
-            modeLabel: `${loan.repaymentPercentage}% of salary`,
-            deduction: Math.min((baseSalary * loan.repaymentPercentage) / 100, loan.remaining),
-          };
-        }
-        if (loan.repaymentType === "custom_amount" && loan.repaymentAmount) {
-          return {
-            id: loan.id,
-            amount: loan.amount,
-            modeLabel: `Fixed ${formatPKR(loan.repaymentAmount)}/month`,
-            deduction: Math.min(loan.repaymentAmount, Math.min(loan.remaining, baseSalary)),
-          };
-        }
-        if (loan.repaymentType === "specific_month") {
-          return {
-            id: loan.id,
-            amount: loan.amount,
-            modeLabel: `Full return in ${loan.repaymentMonth}`,
-            deduction: loan.repaymentMonth === selectedMonth ? Math.min(loan.remaining, baseSalary) : 0,
-          };
-        }
-        return {
-          id: loan.id,
-          amount: loan.amount,
-          modeLabel: "Advance salary (manual)",
-          deduction: 0,
-        };
-      });
-      const loanDeduction = activeLoans.reduce((sum, l) => {
-        if (l.repaymentType === "percentage" && l.repaymentPercentage) {
-          return sum + (baseSalary * l.repaymentPercentage) / 100;
-        }
-        if (l.repaymentType === "custom_amount" && l.repaymentAmount) {
-          return sum + Math.min(l.repaymentAmount, baseSalary);
-        }
-        if (l.repaymentType === "specific_month" && l.repaymentMonth === selectedMonth) {
-          return sum + Math.min(l.remaining, baseSalary);
-        }
-        return sum;
-      }, 0);
-      const manualLoanAdvance = activeLoans
-        .filter((loan) => loan.repaymentType === "manual")
-        .reduce((sum, loan) => sum + loan.remaining, 0);
-      const recordedAdvance = advances
-        .filter((advance) => advance.teacherId === teacher.id && advance.month === selectedMonth)
-        .reduce((sum, advance) => sum + advance.amount, 0);
-      const advanceTaken = manualLoanAdvance + recordedAdvance;
-
-      const expectedSalary = Math.max(0, baseSalary - loanDeduction - advanceTaken);
-      const paidAmount = paidTeachers.get(teacher.id) ?? 0;
-      const pendingAmount = Math.max(0, expectedSalary - paidAmount);
-      const status: "paid" | "partial" | "unpaid" =
-        paidAmount >= expectedSalary ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
-      const totalLoanRemaining = activeLoans.reduce((sum, loan) => sum + loan.remaining, 0);
-
-      // Estimate loan completion
-      let estCompletion = "—";
-      if (activeLoans.length > 0) {
-        const totalRemaining = totalLoanRemaining;
-        if (totalRemaining <= 0) {
-          estCompletion = "Completed";
-        } else {
-          const totalMonthlyDeduction = activeLoans.reduce((s, l) => {
-            if (l.repaymentType === "percentage" && l.repaymentPercentage) {
-              return s + effectiveMonthlySalary * (l.repaymentPercentage / 100);
-            }
-            if (l.repaymentType === "custom_amount" && l.repaymentAmount) {
-              return s + l.repaymentAmount;
-            }
-            if (l.repaymentType === "specific_month" && l.repaymentMonth) {
-              return s; // handled separately
-            }
-            return s;
-          }, 0);
-
-          // Find the latest specific_month deadline
-          const specificMonths = activeLoans
-            .filter((l) => l.repaymentType === "specific_month" && l.repaymentMonth)
-            .map((l) => l.repaymentMonth!);
-
-          if (totalMonthlyDeduction > 0) {
-            const monthsLeft = Math.ceil(totalRemaining / totalMonthlyDeduction);
-            const completionDate = new Date();
-            completionDate.setMonth(completionDate.getMonth() + monthsLeft);
-            estCompletion = format(completionDate, "MMM yyyy");
-          } else if (specificMonths.length > 0) {
-            estCompletion = specificMonths.sort().pop()!;
-          } else {
-            estCompletion = "Manual";
-          }
-        }
-      }
-
-      return {
-        teacher,
-        baseSalary,
-        loanDeduction,
-        advanceTaken,
-        expectedSalary,
-        paidAmount,
-        pendingAmount,
-        status,
-        estCompletion,
-        prorated: isJoiningMonth(teacher.joiningDate, selectedMonth),
-        loanBreakdown,
-        totalLoanRemaining,
-      };
-    }).filter((d) => d.status !== "paid");
+    return activeTeachers
+      .map((teacher) =>
+        getTeacherPendingSalaryDetails({
+          teacher,
+          month: selectedMonth,
+          salaries,
+          loans,
+          advances,
+          annualIncrementPercentage: settings.annualIncrementPercentage,
+        })
+      )
+      .filter((d) => d.status !== "paid");
   }, [activeTeachers, salaries, loans, advances, selectedMonth, settings.annualIncrementPercentage]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
@@ -285,10 +167,10 @@ export default function PendingSalaries() {
             const monthLabel = monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
             downloadCSV(
               `pending-salaries-${selectedMonth}.csv`,
-              ["Teacher", "Contact", "CNIC", "Joining Date", "Base Salary", "Loan Deduction", "Advance Deduction", "Net Expected", "Paid", "Pending", "Status"],
-              pendingData.map(({ teacher, baseSalary, loanDeduction, advanceTaken, expectedSalary, paidAmount, pendingAmount, status }) => [
-                teacher.name, teacher.contact, teacher.cnic, teacher.joiningDate,
-                String(baseSalary), String(loanDeduction), String(advanceTaken), String(expectedSalary),
+              ["S.No", "Teacher", "Contact", "CNIC", "Joining Date", "Base Salary", "Loan Deduction", "Advance Deduction", "Other Deduction", "Net Expected", "Paid", "Pending", "Status"],
+              pendingData.map(({ teacher, baseSalary, loanDeduction, advanceTaken, otherDeduction, expectedSalary, paidAmount, pendingAmount, status }, index) => [
+                String(index + 1), teacher.name, teacher.contact, teacher.cnic, teacher.joiningDate,
+                String(baseSalary), String(loanDeduction), String(advanceTaken), String(otherDeduction), String(expectedSalary),
                 String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
               ])
             );
@@ -347,12 +229,14 @@ export default function PendingSalaries() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">S.No</th>
                     <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Teacher</th>
                     <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Contact</th>
                     <th className="sticky top-0 z-10 bg-background text-left py-3 px-2 font-medium text-muted-foreground">Joining Date</th>
-                    <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Base Salary</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Base Salary</th>
                      <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Loan Ded.</th>
                      <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Advance Ded.</th>
+                     <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Other Ded.</th>
                      <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Est. Completion</th>
                      <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Net Expected</th>
                      <th className="sticky top-0 z-10 bg-background text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
@@ -362,10 +246,11 @@ export default function PendingSalaries() {
                   </tr>
                 </thead>
                 <tbody>
-                   {pendingData.map((details) => {
-                     const { teacher, baseSalary, loanDeduction, advanceTaken, expectedSalary, paidAmount, pendingAmount, status, estCompletion, prorated } = details;
+                   {pendingData.map((details, index) => {
+                     const { teacher, baseSalary, loanDeduction, advanceTaken, otherDeduction, expectedSalary, paidAmount, pendingAmount, status, estCompletion, prorated } = details;
                      return (
                      <tr key={teacher.id} className="border-b border-border last:border-0 hover:bg-muted/50">
+                       <td className="py-3 px-2 text-xs text-muted-foreground font-mono">{index + 1}</td>
                        <td className="py-3 px-2">
                          {teachersOnlyAccess ? (
                            <span className="font-medium">{teacher.name}</span>
@@ -384,6 +269,7 @@ export default function PendingSalaries() {
                        </td>
                        <td className="py-3 px-2 text-right">{loanDeduction > 0 ? formatPKR(loanDeduction) : "—"}</td>
                        <td className="py-3 px-2 text-right">{advanceTaken > 0 ? formatPKR(advanceTaken) : "—"}</td>
+                       <td className="py-3 px-2 text-right">{otherDeduction > 0 ? formatPKR(otherDeduction) : "—"}</td>
                        <td className="py-3 px-2 text-right text-xs text-muted-foreground">{estCompletion}</td>
                       <td className="py-3 px-2 text-right">{formatPKR(expectedSalary)}</td>
                       <td className="py-3 px-2 text-right">{formatPKR(paidAmount)}</td>
@@ -435,6 +321,11 @@ export default function PendingSalaries() {
                 <p>
                   Advance Already Paid: <strong className="text-destructive">
                     {payTeacher.advanceTaken > 0 ? `-${formatPKR(payTeacher.advanceTaken)}` : "—"}
+                  </strong>
+                </p>
+                <p>
+                  Other Deduction: <strong className="text-destructive">
+                    {payTeacher.otherDeduction > 0 ? `-${formatPKR(payTeacher.otherDeduction)}` : "—"}
                   </strong>
                 </p>
                 {payTeacher.loanBreakdown.length > 0 && (

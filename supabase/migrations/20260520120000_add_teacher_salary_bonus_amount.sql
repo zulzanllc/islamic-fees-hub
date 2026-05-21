@@ -1,0 +1,2 @@
+ALTER TABLE teacher_salaries
+ADD COLUMN IF NOT EXISTS bonus_amount NUMERIC NOT NULL DEFAULT 0;

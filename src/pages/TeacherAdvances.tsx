@@ -428,6 +428,7 @@ export default function TeacherAdvances() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>S.No</TableHead>
                   <TableHead>Teacher</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Month</TableHead>
@@ -438,8 +439,9 @@ export default function TeacherAdvances() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAdvances.map((advance) => (
+                {filteredAdvances.map((advance, index) => (
                   <TableRow key={advance.id}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="font-medium">{getTeacherName(advance.teacherId)}</TableCell>
                     <TableCell className="font-semibold text-primary">{formatPKR(advance.amount)}</TableCell>
                     <TableCell>{advance.month}</TableCell>

@@ -68,8 +68,8 @@ export default function Teachers() {
               (filterStatus === "all" || teacher.status === filterStatus) &&
               (!q || teacher.name.toLowerCase().includes(q) || teacher.contact.toLowerCase().includes(q) || teacher.cnic.toLowerCase().includes(q))
             );
-            const headers = ["Name", "Contact", "CNIC", "Base Salary", "Joining Date", "Status"];
-            const rows = filtered.map((teacher) => [teacher.name, teacher.contact, teacher.cnic, String(teacher.monthlySalary), teacher.joiningDate, teacher.status]);
+            const headers = ["S.No", "Name", "Contact", "CNIC", "Base Salary", "Joining Date", "Status"];
+            const rows = filtered.map((teacher, index) => [String(index + 1), teacher.name, teacher.contact, teacher.cnic, String(teacher.monthlySalary), teacher.joiningDate, teacher.status]);
             downloadCSV("teachers.csv", headers, rows);
             toast.success(`Exported ${filtered.length} teachers`);
           }}>
@@ -151,11 +151,12 @@ export default function Teachers() {
             return filtered.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No teachers found.</p> : (
               <Table>
                 <TableHeader><TableRow>
-                  <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Joining Date</TableHead><TableHead>Base Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
+                  <TableHead>S.No</TableHead><TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>CNIC</TableHead><TableHead>Joining Date</TableHead><TableHead>Base Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {filtered.map((t) => (
+                  {filtered.map((t, index) => (
                     <TableRow key={t.id}>
+                      <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                       <TableCell className="font-medium">{t.name}</TableCell>
                       <TableCell>{t.contact}</TableCell>
                       <TableCell>{t.cnic}</TableCell>

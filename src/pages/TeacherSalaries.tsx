@@ -41,10 +41,11 @@ export default function TeacherSalaries() {
   const [salaryTeacherSearch, setSalaryTeacherSearch] = useState("");
   const [filterTeacherSearch, setFilterTeacherSearch] = useState("");
   const [editOpen, setEditOpen] = useState(false);
-  const [editSalary, setEditSalary] = useState<{ id: string; otherDeduction: number; notes: string; baseSalary: number; loanDeduction: number } | null>(null);
+  const [editSalary, setEditSalary] = useState<{ id: string; otherDeduction: number; notes: string; baseSalary: number; loanDeduction: number; bonusAmount: number } | null>(null);
   const [form, setForm] = useState({
     teacherId: "",
     month: format(new Date(), "yyyy-MM"),
+    bonusAmount: 0,
     otherDeduction: 0,
     notes: "",
     datePaid: format(new Date(), "yyyy-MM-dd"),
@@ -171,7 +172,7 @@ export default function TeacherSalaries() {
   const scheduledLoanDeduction = loanDeductionDetails.reduce((total, item) => total + item.scheduledDeduction, 0);
   const loanDeduction = form.skipLoanDeduction ? 0 : scheduledLoanDeduction;
 
-  const netPaid = baseSalary - loanDeduction - advanceForMonth - form.otherDeduction;
+  const netPaid = baseSalary + form.bonusAmount - loanDeduction - advanceForMonth - form.otherDeduction;
 
   const currentMonth = format(new Date(), "yyyy-MM");
   const paidTeacherIds = new Set(salaries.filter((s) => s.month === currentMonth).map((s) => s.teacherId));
@@ -237,43 +238,48 @@ export default function TeacherSalaries() {
         return;
       }
     }
-    await addSalary({
-      teacherId: form.teacherId, month: form.month, baseSalary, loanDeduction: loanDeduction + advanceForMonth,
-      otherDeduction: form.otherDeduction, netPaid, datePaid: form.datePaid, notes: form.notes,
-      paymentMode: form.paymentMode, receiptUrl: form.receiptUrl,
-      proofImageUrl: form.proofImageUrl, customAmount: 0,
-    });
-    for (const item of loanDeductionDetails) {
-      const repaymentChanged =
-        item.loan.repaymentType !== item.effectiveLoan.repaymentType ||
-        item.loan.repaymentMonth !== item.effectiveLoan.repaymentMonth ||
-        item.loan.repaymentPercentage !== item.effectiveLoan.repaymentPercentage ||
-        item.loan.repaymentAmount !== item.effectiveLoan.repaymentAmount;
+    try {
+      await addSalary({
+        teacherId: form.teacherId, month: form.month, baseSalary, loanDeduction: loanDeduction + advanceForMonth,
+        otherDeduction: form.otherDeduction, netPaid, datePaid: form.datePaid, notes: form.notes,
+        paymentMode: form.paymentMode, receiptUrl: form.receiptUrl,
+        proofImageUrl: form.proofImageUrl, bonusAmount: form.bonusAmount, customAmount: 0,
+      });
+      for (const item of loanDeductionDetails) {
+        const repaymentChanged =
+          item.loan.repaymentType !== item.effectiveLoan.repaymentType ||
+          item.loan.repaymentMonth !== item.effectiveLoan.repaymentMonth ||
+          item.loan.repaymentPercentage !== item.effectiveLoan.repaymentPercentage ||
+          item.loan.repaymentAmount !== item.effectiveLoan.repaymentAmount;
 
-      if (item.deduction <= 0 && !repaymentChanged) continue;
+        if (item.deduction <= 0 && !repaymentChanged) continue;
 
-      const loanUpdates: Partial<TeacherLoan> = {};
-      if (repaymentChanged) {
-        loanUpdates.repaymentType = item.effectiveLoan.repaymentType;
-        loanUpdates.repaymentMonth = item.effectiveLoan.repaymentMonth;
-        loanUpdates.repaymentPercentage = item.effectiveLoan.repaymentPercentage;
-        loanUpdates.repaymentAmount = item.effectiveLoan.repaymentAmount;
+        const loanUpdates: Partial<TeacherLoan> = {};
+        if (repaymentChanged) {
+          loanUpdates.repaymentType = item.effectiveLoan.repaymentType;
+          loanUpdates.repaymentMonth = item.effectiveLoan.repaymentMonth;
+          loanUpdates.repaymentPercentage = item.effectiveLoan.repaymentPercentage;
+          loanUpdates.repaymentAmount = item.effectiveLoan.repaymentAmount;
+        }
+        if (item.deduction > 0) {
+          loanUpdates.remaining = item.remainingAfter;
+          loanUpdates.status = item.remainingAfter <= 0 ? "paid" : "active";
+        }
+        await updateLoan(item.loan.id, loanUpdates);
       }
-      if (item.deduction > 0) {
-        loanUpdates.remaining = item.remainingAfter;
-        loanUpdates.status = item.remainingAfter <= 0 ? "paid" : "active";
-      }
-      await updateLoan(item.loan.id, loanUpdates);
+      toast.success("Salary recorded");
+      setOpen(false);
+      setForm({
+        teacherId: "", month: format(new Date(), "yyyy-MM"), bonusAmount: 0, otherDeduction: 0, notes: "",
+        datePaid: format(new Date(), "yyyy-MM-dd"), paymentMode: "cash", receiptUrl: "", proofImageUrl: "",
+        skipLoanDeduction: false,
+      });
+      setSalaryTeacherSearch("");
+      setLoanRepaymentEdits({});
+    } catch (error) {
+      console.error("Failed to record salary", error);
+      toast.error("Failed to record salary. Please check database migrations and try again.");
     }
-    toast.success("Salary recorded");
-    setOpen(false);
-    setForm({
-      teacherId: "", month: format(new Date(), "yyyy-MM"), otherDeduction: 0, notes: "",
-      datePaid: format(new Date(), "yyyy-MM-dd"), paymentMode: "cash", receiptUrl: "", proofImageUrl: "",
-      skipLoanDeduction: false,
-    });
-    setSalaryTeacherSearch("");
-    setLoanRepaymentEdits({});
   };
 
   const getTeacherName = (id: string) => teachers.find((t) => t.id === id)?.name ?? "Unknown";
@@ -328,7 +334,8 @@ export default function TeacherSalaries() {
       <table>
         <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
         <tbody>
-          <tr><td>Base Salary${s.customAmount > 0 ? " (Custom)" : ""}</td><td class="amount">${formatPKR(s.baseSalary)}</td></tr>
+          <tr><td>Base Salary</td><td class="amount">${formatPKR(s.baseSalary)}</td></tr>
+          ${s.bonusAmount > 0 ? `<tr><td>Bonus</td><td class="amount">${formatPKR(s.bonusAmount)}</td></tr>` : ""}
           <tr><td>Loan Deduction</td><td class="amount deduction">-${formatPKR(s.loanDeduction)}</td></tr>
           <tr><td>Other Deduction</td><td class="amount deduction">-${formatPKR(s.otherDeduction)}</td></tr>
           <tr class="net-row"><td><strong>Net Pay</strong></td><td class="amount">${formatPKR(s.netPaid)}</td></tr>
@@ -353,14 +360,16 @@ export default function TeacherSalaries() {
       notes: salary.notes,
       baseSalary: salary.baseSalary,
       loanDeduction: salary.loanDeduction,
+      bonusAmount: salary.bonusAmount,
     });
     setEditOpen(true);
   };
 
   const handleEditSave = async () => {
     if (!editSalary) return;
-    const newNet = editSalary.baseSalary - editSalary.loanDeduction - editSalary.otherDeduction;
+    const newNet = editSalary.baseSalary + editSalary.bonusAmount - editSalary.loanDeduction - editSalary.otherDeduction;
     const error = await updateSalary(editSalary.id, {
+      bonusAmount: editSalary.bonusAmount,
       otherDeduction: editSalary.otherDeduction,
       netPaid: newNet,
       notes: editSalary.notes,
@@ -465,6 +474,7 @@ export default function TeacherSalaries() {
                     Base Salary: <strong>{formatPKR(baseSalary)}</strong>
                     {isBaseSalaryProrated && <span className="text-xs text-muted-foreground"> (prorated from joining date)</span>}
                   </p>
+                  {form.bonusAmount > 0 && <p>Bonus: <strong className="text-primary">+{formatPKR(form.bonusAmount)}</strong></p>}
                   <p>Loan Deduction: <strong className="text-destructive">-{formatPKR(loanDeduction)}</strong></p>
                   {form.skipLoanDeduction && scheduledLoanDeduction > 0 && (
                     <p className="text-xs text-muted-foreground">
@@ -585,6 +595,7 @@ export default function TeacherSalaries() {
                 </div>
               )}
 
+              <div><Label>Bonus</Label><Input type="number" min={0} value={form.bonusAmount} onChange={(e) => setForm({ ...form, bonusAmount: Number(e.target.value) })} placeholder="e.g. 3000" /></div>
               <div><Label>Other Deduction</Label><Input type="number" value={form.otherDeduction} onChange={(e) => setForm({ ...form, otherDeduction: Number(e.target.value) })} /></div>
               <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
               {selectedTeacher && <p className="text-sm font-semibold">Net Pay: <span className="text-primary">{formatPKR(netPaid)}</span></p>}
@@ -605,9 +616,9 @@ export default function TeacherSalaries() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {pendingTeachers.map((t) => (
+              {pendingTeachers.map((t, index) => (
                 <div key={t.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
-                  <span className="text-sm font-medium">{t.name}</span>
+                  <span className="text-sm font-medium"><span className="text-xs text-muted-foreground font-mono mr-2">{index + 1}.</span>{t.name}</span>
                   <span className="text-sm font-semibold text-destructive">
                     {formatPKR(
                       getProratedMonthlyAmount(
@@ -692,18 +703,20 @@ export default function TeacherSalaries() {
               <div className="max-h-[520px] overflow-auto rounded-md border">
               <table className="w-full caption-bottom text-sm">
                 <TableHeader className="bg-background shadow-sm [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background"><TableRow>
-                  <TableHead>Teacher</TableHead><TableHead>Month</TableHead><TableHead>Base</TableHead><TableHead>Loan Ded.</TableHead><TableHead>Advance Ded.</TableHead><TableHead>Other Ded.</TableHead><TableHead>Net Paid</TableHead><TableHead>Mode</TableHead><TableHead>Date</TableHead><TableHead></TableHead>
+                  <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Month</TableHead><TableHead>Base</TableHead><TableHead>Bonus</TableHead><TableHead>Loan Ded.</TableHead><TableHead>Advance Ded.</TableHead><TableHead>Other Ded.</TableHead><TableHead>Net Paid</TableHead><TableHead>Mode</TableHead><TableHead>Date</TableHead><TableHead></TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {filtered.map((s) => {
+                  {filtered.map((s, index) => {
                     const advanceDeduction = getAdvanceDeductionForSalary(s.teacherId, s.month);
                     const loanOnlyDeduction = Math.max(0, s.loanDeduction - advanceDeduction);
 
                     return (
                     <TableRow key={s.id}>
+                      <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                       <TableCell className="font-medium">{getTeacherName(s.teacherId)}</TableCell>
                       <TableCell>{s.month}</TableCell>
-                      <TableCell>{formatPKR(s.baseSalary)}{s.customAmount > 0 && <span className="text-xs text-muted-foreground ml-1">(custom)</span>}</TableCell>
+                      <TableCell>{formatPKR(s.baseSalary)}</TableCell>
+                      <TableCell className="text-primary">{s.bonusAmount > 0 ? `+${formatPKR(s.bonusAmount)}` : "—"}</TableCell>
                       <TableCell className="text-destructive">-{formatPKR(loanOnlyDeduction)}</TableCell>
                       <TableCell className="text-destructive">{advanceDeduction > 0 ? `-${formatPKR(advanceDeduction)}` : "—"}</TableCell>
                       <TableCell className="text-destructive">-{formatPKR(s.otherDeduction)}</TableCell>
@@ -748,6 +761,10 @@ export default function TeacherSalaries() {
           {editSalary && (
             <div className="space-y-3">
               <div>
+                <Label>Bonus</Label>
+                <Input type="number" min={0} value={editSalary.bonusAmount} onChange={(e) => setEditSalary({ ...editSalary, bonusAmount: Number(e.target.value) })} />
+              </div>
+              <div>
                 <Label>Other Deduction</Label>
                 <Input type="number" value={editSalary.otherDeduction} onChange={(e) => setEditSalary({ ...editSalary, otherDeduction: Number(e.target.value) })} />
               </div>
@@ -756,7 +773,7 @@ export default function TeacherSalaries() {
                 <Input value={editSalary.notes} onChange={(e) => setEditSalary({ ...editSalary, notes: e.target.value })} />
               </div>
               <p className="text-sm font-semibold">
-                Updated Net Pay: <span className="text-primary">{formatPKR(editSalary.baseSalary - editSalary.loanDeduction - editSalary.otherDeduction)}</span>
+                Updated Net Pay: <span className="text-primary">{formatPKR(editSalary.baseSalary + editSalary.bonusAmount - editSalary.loanDeduction - editSalary.otherDeduction)}</span>
               </p>
               <Button className="w-full" onClick={handleEditSave}>Save Changes</Button>
             </div>
