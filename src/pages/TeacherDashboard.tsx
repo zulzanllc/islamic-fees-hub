@@ -37,6 +37,8 @@ const salaryChartConfig: ChartConfig = {
   salary: { label: "Salaries", color: "hsl(220 60% 50%)" },
 };
 
+type SalaryDateBasis = "salaryMonth" | "paymentDate";
+
 export default function TeacherDashboard() {
   const { teachers } = useTeachers();
   const { salaries } = useTeacherSalaries();
@@ -45,6 +47,7 @@ export default function TeacherDashboard() {
   const { advances, addAdvance } = useTeacherAdvances();
 
   const [dateFilter, setDateFilter] = useState(createDefaultDashboardDateFilter);
+  const [salaryDateBasis, setSalaryDateBasis] = useState<SalaryDateBasis>("salaryMonth");
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [advanceForm, setAdvanceForm] = useState({ teacherId: "", amount: 0, notes: "", paymentMode: "cash" as "cash" | "online", proofImageUrl: "" });
   const [advanceTeacherSearch, setAdvanceTeacherSearch] = useState("");
@@ -68,8 +71,13 @@ export default function TeacherDashboard() {
     );
   }, [activeTeachers, advanceTeacherSearch]);
   const salariesInRange = useMemo(
-    () => salaries.filter((salary) => isDateInDashboardRange(salary.datePaid, range)),
-    [salaries, range]
+    () =>
+      salaries.filter((salary) =>
+        salaryDateBasis === "salaryMonth"
+          ? rangeMonths.includes(salary.month)
+          : isDateInDashboardRange(salary.datePaid, range)
+      ),
+    [salaries, range, rangeMonths, salaryDateBasis]
   );
 
   const pendingSalaryData = useMemo(() => {
@@ -110,10 +118,16 @@ export default function TeacherDashboard() {
 
   const salaryChartData = useMemo(() => {
     return getRangeChartMonths(range).map((month) => {
-      const salary = salaries.filter((s) => s.month === month.value).reduce((sum, s) => sum + s.netPaid, 0);
+      const salary = salaries
+        .filter((s) =>
+          salaryDateBasis === "salaryMonth"
+            ? s.month === month.value
+            : s.datePaid.startsWith(month.value)
+        )
+        .reduce((sum, s) => sum + s.netPaid, 0);
       return { month: month.label, salary };
     });
-  }, [salaries, range]);
+  }, [salaries, range, salaryDateBasis]);
 
   const recentSalaries = useMemo(
     () => [...salariesInRange].sort((a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()).slice(0, 5),
@@ -161,7 +175,7 @@ export default function TeacherDashboard() {
     { title: "Teachers in Range", value: teachersInRange.length, icon: Briefcase, color: "text-primary" },
     { title: "Pending Salaries", value: `${pendingSalaryData.length} teacher${pendingSalaryData.length !== 1 ? "s" : ""}`, icon: Clock, color: "text-destructive" },
     { title: "Pending Amount", value: formatPKR(totalPendingSalary), icon: AlertCircle, color: "text-destructive" },
-    { title: "Paid in Range", value: formatPKR(totalSalaryIssued), icon: Banknote, color: "text-primary" },
+    { title: salaryDateBasis === "salaryMonth" ? "Paid by Salary Month" : "Paid by Payment Date", value: formatPKR(totalSalaryIssued), icon: Banknote, color: "text-primary" },
     { title: "Paid in Cash", value: formatPKR(totalSalaryPaidCash), icon: Wallet, color: "text-primary" },
     { title: "Paid Online", value: formatPKR(totalSalaryPaidOnline), icon: Landmark, color: "text-primary" },
     { title: "Outstanding Loans", value: formatPKR(activeLoansTotal), icon: CreditCard, color: "text-destructive" },
@@ -172,9 +186,24 @@ export default function TeacherDashboard() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Teacher Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of teacher salaries & loans for {range.label}</p>
+          <p className="text-sm text-muted-foreground">
+            Overview of teacher salaries & loans for {range.label}
+            {salaryDateBasis === "salaryMonth" ? " by salary month" : " by payment date"}
+          </p>
         </div>
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Salary Records By</Label>
+            <Select value={salaryDateBasis} onValueChange={(value) => setSalaryDateBasis(value as SalaryDateBasis)}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="salaryMonth">Salary Month</SelectItem>
+                <SelectItem value="paymentDate">Payment Date</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <DashboardDateFilter value={dateFilter} onChange={setDateFilter} />
           <Dialog
             open={advanceOpen}
@@ -290,7 +319,11 @@ export default function TeacherDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader><CardTitle className="text-lg">Salary Disbursement ({range.label})</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              Salary Disbursement ({range.label}, {salaryDateBasis === "salaryMonth" ? "Salary Month" : "Payment Date"})
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <ChartContainer config={salaryChartConfig} className="h-[250px] w-full">
               <BarChart data={salaryChartData}>
@@ -328,7 +361,11 @@ export default function TeacherDashboard() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg">Recent Salary Payments ({range.label})</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            Recent Salary Payments ({range.label}, {salaryDateBasis === "salaryMonth" ? "Salary Month" : "Payment Date"})
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           {recentSalaries.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No salary payments recorded yet.</p>
