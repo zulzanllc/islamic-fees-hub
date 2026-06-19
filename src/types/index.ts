@@ -24,11 +24,13 @@ export interface Payment {
   studentId: string;
   feeType: "tuition" | "registration";
   amountPaid: number;
+  pendingFeePaid?: number;
   date: string;
   feeMonth: string;
   receiptNumber: string;
   notes: string;
   collectedBy: string | null;
+  collectedByEmail?: string | null;
   paymentMode: string;
   receiptPrinted: boolean;
   proofImageUrl: string;
@@ -37,6 +39,8 @@ export interface Payment {
 export interface StudentPaymentSubmission {
   id: string;
   feeMonth: string;
+  classGrade: string | null;
+  classGrades: string[] | null;
   amountSubmitted: number;
   totalCollectedAtSubmission: number;
   previouslySubmittedAmount: number;
@@ -45,6 +49,7 @@ export interface StudentPaymentSubmission {
   paymentMode: string;
   notes: string;
   submittedBy: string | null;
+  submittedByEmail?: string | null;
   createdAt: string;
 }
 
@@ -70,6 +75,7 @@ export interface TeacherLoan {
   repaymentMonth: string | null;
   repaymentPercentage: number | null;
   repaymentAmount: number | null;
+  deductionStartMonth: string | null;
 }
 
 export interface TeacherSalary {

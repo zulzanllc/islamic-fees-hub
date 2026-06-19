@@ -11,7 +11,7 @@ import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherSalarySetti
 import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
-import { AlertCircle, Wallet, Download } from "lucide-react";
+import { AlertCircle, Wallet, Download, Search } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ export default function PendingSalaries() {
     !permissions.canManageRoles;
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Payment dialog state
   const [payOpen, setPayOpen] = useState(false);
@@ -150,8 +151,19 @@ export default function PendingSalaries() {
           annualIncrementPercentage: settings.annualIncrementPercentage,
         })
       )
-      .filter((d) => d.status !== "paid");
-  }, [activeTeachers, salaries, loans, advances, selectedMonth, settings.annualIncrementPercentage]);
+      .filter((d) => d.status !== "paid")
+      .filter((details) => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return true;
+        const teacher = details.teacher;
+        return (
+          teacher.name.toLowerCase().includes(query) ||
+          teacher.contact.toLowerCase().includes(query) ||
+          teacher.cnic.toLowerCase().includes(query) ||
+          teacher.joiningDate.toLowerCase().includes(query)
+        );
+      });
+  }, [activeTeachers, salaries, loans, advances, selectedMonth, settings.annualIncrementPercentage, searchQuery]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
 
@@ -181,18 +193,32 @@ export default function PendingSalaries() {
         )}
       </div>
 
-      <div className="space-y-1">
-        <label className="text-sm font-medium text-muted-foreground">Month</label>
-        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {monthOptions.map((m) => (
-              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap gap-4 items-end">
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-muted-foreground">Month</label>
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((m) => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-muted-foreground">Search</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search teacher, contact or CNIC"
+              className="w-[260px] pl-8"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

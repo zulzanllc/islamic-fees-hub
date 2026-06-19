@@ -13,13 +13,14 @@ import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { formatPKR } from "@/lib/currency";
 import { format, subMonths } from "date-fns";
-import { AlertCircle, ChevronDown, CreditCard, Download } from "lucide-react";
+import { AlertCircle, ChevronDown, CreditCard, Download, Search } from "lucide-react";
 import { downloadCSV } from "@/lib/exportCsv";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import type { Student } from "@/types";
-import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, getStudentTotalDueThroughMonth, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentTotalDueThroughMonth, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
+import { getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 
 export default function PendingFees() {
   const { students } = useStudents();
@@ -29,28 +30,44 @@ export default function PendingFees() {
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Payment dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentStudent, setPaymentStudent] = useState<{ student: Student; pendingAmount: number; feeMonth: string } | null>(null);
+  const [paymentStudent, setPaymentStudent] = useState<{ student: Student; monthlyPendingAmount: number; pendingFeeBalance: number; feeMonth: string } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [pendingFeePaymentAmount, setPendingFeePaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("cash");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const openPaymentDialog = (student: Student, pendingAmount: number, feeMonth: string) => {
-    setPaymentStudent({ student, pendingAmount, feeMonth });
-    setPaymentAmount(String(pendingAmount));
+  const openPaymentDialog = (student: Student, monthlyPendingAmount: number, pendingFeeBalance: number, feeMonth: string) => {
+    setPaymentStudent({ student, monthlyPendingAmount, pendingFeeBalance, feeMonth });
+    setPaymentAmount(String(monthlyPendingAmount));
+    setPendingFeePaymentAmount("");
     setPaymentMode("cash");
     setPaymentNotes("");
     setPaymentOpen(true);
   };
 
   const handleRecordPayment = async () => {
-    if (!paymentStudent || !paymentAmount) return;
+    if (!paymentStudent) return;
     const amount = Number(paymentAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const pendingFeeAmount = Number(pendingFeePaymentAmount || 0);
+    if (isNaN(amount) || amount < 0 || isNaN(pendingFeeAmount) || pendingFeeAmount < 0) {
       toast.error("Enter a valid amount");
+      return;
+    }
+    if (paymentStudent.monthlyPendingAmount > 0 && amount !== paymentStudent.monthlyPendingAmount) {
+      toast.error(`Monthly fee must be paid in full: ${formatPKR(paymentStudent.monthlyPendingAmount)}`);
+      return;
+    }
+    if (pendingFeeAmount > paymentStudent.pendingFeeBalance) {
+      toast.error(`Pending fee payment cannot exceed ${formatPKR(paymentStudent.pendingFeeBalance)}`);
+      return;
+    }
+    if (amount + pendingFeeAmount <= 0) {
+      toast.error("Enter a payment amount");
       return;
     }
     setSubmitting(true);
@@ -59,13 +76,14 @@ export default function PendingFees() {
         studentId: paymentStudent.student.id,
         feeType: "tuition",
         amountPaid: amount,
+        pendingFeePaid: pendingFeeAmount,
         date: format(new Date(), "yyyy-MM-dd"),
         feeMonth: paymentStudent.feeMonth,
         notes: paymentNotes,
         collectedBy: user?.id ?? null,
         paymentMode,
       });
-      toast.success(`Payment of ${formatPKR(amount)} recorded for ${paymentStudent.student.name}`);
+      toast.success(`Payment of ${formatPKR(amount + pendingFeeAmount)} recorded for ${paymentStudent.student.name}`);
       setPaymentOpen(false);
     } catch {
       toast.error("Failed to record payment");
@@ -120,10 +138,7 @@ export default function PendingFees() {
 
     const getNextPendingFee = (student: Student) => {
       const monthlyFee = getStudentMonthlyFee(student, fees);
-      const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0);
-      const feeStartDate = openingInstallments[0]
-        ? new Date(`${openingInstallments[0].month}-01T00:00:00`)
-        : getStudentFeeStartDate(student.enrollmentDate);
+      const feeStartDate = getStudentFeeStartDate(student.enrollmentDate);
       if (!feeStartDate) return null;
 
       const cursor = new Date(feeStartDate.getFullYear(), feeStartDate.getMonth(), 1);
@@ -132,8 +147,7 @@ export default function PendingFees() {
 
       while (cursor <= end) {
         const month = format(cursor, "yyyy-MM");
-        const openingInstallment = openingInstallments.find((installment) => installment.month === month);
-        const expected = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, month, student.leavingDate);
+        const expected = getStudentMonthlyDue(monthlyFee, student.enrollmentDate, month, student.leavingDate);
         const paid = payments
           .filter((payment) => payment.studentId === student.id && payment.feeType === "tuition" && payment.feeMonth === month)
           .reduce((sum, payment) => sum + payment.amountPaid, 0);
@@ -151,17 +165,21 @@ export default function PendingFees() {
         student.enrollmentDate,
         selectedMonth,
         student.leavingDate,
-        student.openingDueAmount ?? 0
+        0
       );
       const paidAmount = paidStudents.get(student.id) ?? 0;
-      const pendingAmount = Math.max(0, expectedFee - paidAmount);
+      const monthlyPendingAmount = Math.max(0, expectedFee - paidAmount);
+      const pendingFeeBalance = getStudentPendingFeeBalance(student, payments);
+      const pendingAmount = monthlyPendingAmount + pendingFeeBalance;
       const status: "paid" | "partial" | "unpaid" =
-        paidAmount >= expectedFee ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
+        pendingAmount <= 0 ? "paid" : paidAmount > 0 || pendingFeeBalance < (student.openingDueAmount ?? 0) ? "partial" : "unpaid";
 
       return {
         student,
         expectedFee,
         paidAmount,
+        monthlyPendingAmount,
+        pendingFeeBalance,
         pendingAmount,
         status,
         nextPendingFee: getNextPendingFee(student),
@@ -169,8 +187,20 @@ export default function PendingFees() {
           isJoiningMonth(student.enrollmentDate, selectedMonth) ||
           isLeavingMonth(student.leavingDate, selectedMonth),
       };
-    }).filter((d) => d.expectedFee > 0 && d.status !== "paid");
-  }, [eligibleStudents, payments, fees, selectedMonth]);
+    }).filter((d) => (d.expectedFee > 0 || d.pendingFeeBalance > 0) && d.status !== "paid")
+      .filter((details) => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return true;
+        const student = details.student;
+        return (
+          student.name.toLowerCase().includes(query) ||
+          student.studentCode.toLowerCase().includes(query) ||
+          student.classGrade.toLowerCase().includes(query) ||
+          student.guardianName.toLowerCase().includes(query) ||
+          student.contact.toLowerCase().includes(query)
+        );
+      });
+  }, [eligibleStudents, payments, fees, selectedMonth, searchQuery]);
 
   const totalPending = pendingData.reduce((s, d) => s + d.pendingAmount, 0);
 
@@ -186,10 +216,10 @@ export default function PendingFees() {
             const monthLabel = monthOptions.find(m => m.value === selectedMonth)?.label ?? selectedMonth;
             downloadCSV(
               `pending-fees-${selectedMonth}.csv`,
-              ["S.No", "Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Leaving Date", "Expected", "Paid", "Pending", "Status"],
-              pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status }, index) => [
+              ["S.No", "Student", "Code", "Class", "Guardian", "Contact", "Joining Date", "Leaving Date", "Monthly Expected", "Monthly Paid", "Standalone Pending", "Total Pending", "Status"],
+              pendingData.map(({ student, expectedFee, paidAmount, pendingFeeBalance, pendingAmount, status }, index) => [
                 String(index + 1), student.name, student.studentCode, student.classGrade, student.guardianName, student.contact,
-                student.enrollmentDate, student.leavingDate ?? "", String(expectedFee), String(paidAmount), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
+                student.enrollmentDate, student.leavingDate ?? "", String(expectedFee), String(paidAmount), String(pendingFeeBalance), String(pendingAmount), status === "partial" ? "Partial" : "Unpaid",
               ])
             );
             toast.success(`Exported ${pendingData.length} records for ${monthLabel}`);
@@ -259,6 +289,18 @@ export default function PendingFees() {
             </PopoverContent>
           </Popover>
         </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-muted-foreground">Search</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search student, code or guardian"
+              className="w-[280px] pl-8"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -301,15 +343,16 @@ export default function PendingFees() {
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Guardian</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Contact</th>
                     <th className="text-left py-3 px-2 font-medium text-muted-foreground">Joining Date</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Expected</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Paid</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Monthly Expected</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Monthly Paid</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending Fee</th>
                     <th className="text-right py-3 px-2 font-medium text-muted-foreground">Pending</th>
                     <th className="text-center py-3 px-2 font-medium text-muted-foreground">Status</th>
                     {permissions.canCollectFees && <th className="text-center py-3 px-2 font-medium text-muted-foreground">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingData.map(({ student, expectedFee, paidAmount, pendingAmount, status, prorated, nextPendingFee }, index) => (
+                  {pendingData.map(({ student, expectedFee, paidAmount, monthlyPendingAmount, pendingFeeBalance, pendingAmount, status, prorated, nextPendingFee }, index) => (
                     <tr key={student.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-2 text-xs text-muted-foreground font-mono">{index + 1}</td>
                       <td className="py-3 px-2">
@@ -330,6 +373,7 @@ export default function PendingFees() {
                         {prorated && <p className="text-xs text-muted-foreground">Prorated</p>}
                       </td>
                       <td className="py-3 px-2 text-right">{formatPKR(paidAmount)}</td>
+                      <td className="py-3 px-2 text-right">{formatPKR(pendingFeeBalance)}</td>
                       <td className="py-3 px-2 text-right font-semibold text-destructive">{formatPKR(pendingAmount)}</td>
                       <td className="py-3 px-2 text-center">
                         <Badge variant={status === "partial" ? "secondary" : "destructive"}>
@@ -338,7 +382,7 @@ export default function PendingFees() {
                       </td>
                       {permissions.canCollectFees && (
                         <td className="py-3 px-2 text-center">
-                          <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, nextPendingFee?.pending ?? pendingAmount, nextPendingFee?.month ?? selectedMonth)}>
+                          <Button size="sm" variant="outline" onClick={() => openPaymentDialog(student, nextPendingFee?.pending ?? monthlyPendingAmount, pendingFeeBalance, nextPendingFee?.month ?? selectedMonth)}>
                             <CreditCard className="h-3 w-3 mr-1" /> Collect
                           </Button>
                         </td>
@@ -363,7 +407,7 @@ export default function PendingFees() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Amount (PKR)</Label>
+              <Label>Monthly Fee Amount (PKR)</Label>
               <Input
                 type="number"
                 value={paymentAmount}
@@ -371,7 +415,21 @@ export default function PendingFees() {
                 placeholder="Enter amount"
               />
               {paymentStudent && (
-                <p className="text-xs text-muted-foreground">Pending: {formatPKR(paymentStudent.pendingAmount)}</p>
+                <p className="text-xs text-muted-foreground">Monthly fee must be paid in full: {formatPKR(paymentStudent.monthlyPendingAmount)}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Pending Fee Payment (PKR)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={paymentStudent?.pendingFeeBalance ?? 0}
+                value={pendingFeePaymentAmount}
+                onChange={(e) => setPendingFeePaymentAmount(e.target.value)}
+                placeholder="0"
+              />
+              {paymentStudent && (
+                <p className="text-xs text-muted-foreground">Standalone pending balance: {formatPKR(paymentStudent.pendingFeeBalance)}</p>
               )}
             </div>
             <div className="space-y-2">

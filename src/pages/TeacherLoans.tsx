@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTeachers, useTeacherLoans } from "@/store/useTeacherStore";
+import { useTeacherSalaries } from "@/store/useTeacherStore";
+import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { useTeacherBonuses } from "@/store/useTeacherBonuses";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,19 +13,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Gift, Plus, Search, Trash2, Pencil } from "lucide-react";
+import { Gift, Plus, Search, Trash2, Pencil, Printer } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { useAuth } from "@/hooks/useAuth";
 import ProofUpload from "@/components/ProofUpload";
+import { getTeacherLoansWithCalculatedBalance } from "@/lib/teacherLoanBalance";
+import type { TeacherLoan } from "@/types";
 
 type RepaymentType = "specific_month" | "percentage" | "custom_amount" | "manual";
 
 export default function TeacherLoans() {
   const { teachers } = useTeachers();
   const { loans, loading, addLoan, updateLoan, fetchLoans } = useTeacherLoans();
+  const { salaries } = useTeacherSalaries();
+  const { advances } = useTeacherAdvances();
   const { bonuses, loading: bonusesLoading, addBonus, deleteBonus } = useTeacherBonuses();
   const { permissions } = useAuth();
   const [open, setOpen] = useState(false);
@@ -37,6 +43,7 @@ export default function TeacherLoans() {
     amount: 0,
     notes: "",
     dateIssued: format(new Date(), "yyyy-MM-dd"),
+    deductionStartMonth: format(new Date(), "yyyy-MM"),
     repaymentType: "manual" as RepaymentType,
     repaymentMonth: "",
     repaymentPercentage: 0,
@@ -64,8 +71,11 @@ export default function TeacherLoans() {
     if (form.repaymentType === "custom_amount" && form.repaymentAmount <= 0) {
       toast.error("Enter a valid monthly deduction amount"); return;
     }
+    if (form.repaymentType !== "manual" && !form.deductionStartMonth) {
+      toast.error("Select the deduction start month"); return;
+    }
 
-    await addLoan({
+    const createdLoan = await addLoan({
       teacherId: form.teacherId,
       amount: form.amount,
       remaining: form.amount,
@@ -76,12 +86,17 @@ export default function TeacherLoans() {
       repaymentMonth: form.repaymentType === "specific_month" ? form.repaymentMonth : null,
       repaymentPercentage: form.repaymentType === "percentage" ? form.repaymentPercentage : null,
       repaymentAmount: form.repaymentType === "custom_amount" ? form.repaymentAmount : null,
+      deductionStartMonth: form.repaymentType === "manual" ? null : form.deductionStartMonth || form.dateIssued.slice(0, 7),
     });
     toast.success("Loan recorded");
+    if (createdLoan) {
+      printLoanReceipt(createdLoan);
+    }
     setOpen(false);
     setForm({
       teacherId: "", amount: 0, notes: "",
       dateIssued: format(new Date(), "yyyy-MM-dd"),
+      deductionStartMonth: format(new Date(), "yyyy-MM"),
       repaymentType: "manual", repaymentMonth: "", repaymentPercentage: 0, repaymentAmount: 0,
     });
     setLoanTeacherSearch("");
@@ -149,17 +164,22 @@ export default function TeacherLoans() {
     setBonusTeacherSearch("");
   };
 
+  const calculatedLoans = useMemo(
+    () => getTeacherLoansWithCalculatedBalance(loans, salaries, advances),
+    [loans, salaries, advances]
+  );
+
   const filteredLoans = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return loans;
+    if (!query) return calculatedLoans;
 
-    return loans.filter((loan) => {
+    return calculatedLoans.filter((loan) => {
       const teacherName = teachers.find((t) => t.id === loan.teacherId)?.name ?? "Unknown";
       return teacherName.toLowerCase().includes(query);
     });
-  }, [loans, searchQuery, teachers]);
+  }, [calculatedLoans, searchQuery, teachers]);
 
-  const getRepaymentLabel = (loan: typeof loans[0]) => {
+  const getRepaymentLabel = (loan: TeacherLoan) => {
     switch (loan.repaymentType) {
       case "specific_month": return `Full return in ${loan.repaymentMonth}`;
       case "percentage": return `${loan.repaymentPercentage}% of salary/month`;
@@ -168,7 +188,7 @@ export default function TeacherLoans() {
     }
   };
 
-  const getEstimatedCompletion = (loan: typeof loans[0]) => {
+  const getEstimatedCompletion = (loan: TeacherLoan) => {
     if (loan.status === "paid") return "Completed";
     if (loan.remaining <= 0) return "Completed";
 
@@ -195,19 +215,140 @@ export default function TeacherLoans() {
     return format(completionDate, "MMM yyyy");
   };
 
+  const escapeHtml = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const getRepaymentDetails = (loan: TeacherLoan) => {
+    const details = [
+      { label: "Repayment Method", value: getRepaymentLabel(loan) },
+      { label: "Deduction Start Month", value: loan.repaymentType === "manual" ? "-" : loan.deductionStartMonth ?? loan.dateIssued.slice(0, 7) },
+    ];
+
+    if (loan.repaymentType === "specific_month") {
+      details.push({ label: "Return Month", value: loan.repaymentMonth ?? "-" });
+    }
+    if (loan.repaymentType === "percentage") {
+      details.push({ label: "Monthly Deduction", value: `${loan.repaymentPercentage ?? 0}% of salary` });
+    }
+    if (loan.repaymentType === "custom_amount") {
+      details.push({ label: "Monthly Deduction", value: formatPKR(loan.repaymentAmount ?? 0) });
+    }
+
+    return details;
+  };
+
+  const printLoanReceipt = (loan: TeacherLoan) => {
+    const teacher = teachers.find((t) => t.id === loan.teacherId);
+    const receiptWindow = window.open("", "_blank");
+    if (!receiptWindow) {
+      toast.error("Unable to open receipt window");
+      return;
+    }
+
+    const receiptNo = `LN-${loan.id.slice(0, 8).toUpperCase()}`;
+    const repaymentRows = getRepaymentDetails(loan)
+      .map((detail) => `
+        <tr>
+          <td>${escapeHtml(detail.label)}</td>
+          <td>${escapeHtml(detail.value)}</td>
+        </tr>
+      `)
+      .join("");
+
+    receiptWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Loan Receipt - ${escapeHtml(receiptNo)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; margin: 0; padding: 24px; }
+            .receipt { max-width: 760px; margin: 0 auto; border: 1px solid #d1d5db; padding: 24px; }
+            .header { text-align: center; border-bottom: 2px solid #111827; padding-bottom: 16px; margin-bottom: 20px; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .header h2 { margin: 8px 0 0; font-size: 18px; font-weight: 600; }
+            .meta { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            td, th { border: 1px solid #d1d5db; padding: 10px; text-align: left; font-size: 14px; }
+            th { background: #f3f4f6; }
+            .section-title { margin-top: 18px; font-size: 15px; font-weight: 700; }
+            .amount { font-weight: 700; }
+            .notes { min-height: 48px; white-space: pre-wrap; }
+            .footer { display: flex; justify-content: space-between; margin-top: 44px; font-size: 13px; }
+            .signature { border-top: 1px solid #111827; padding-top: 8px; width: 220px; text-align: center; }
+            @media print { body { padding: 0; } .receipt { border: none; } }
+          </style>
+        </head>
+        <body>
+          <div class="receipt">
+            <div class="header">
+              <h1>Madrasa Darul Quran Education System</h1>
+              <h2>Loan Receipt</h2>
+            </div>
+            <div class="meta">
+              <div><strong>Receipt No:</strong> ${escapeHtml(receiptNo)}</div>
+              <div><strong>Generated:</strong> ${escapeHtml(format(new Date(), "yyyy-MM-dd"))}</div>
+            </div>
+            <div class="section-title">Teacher Details</div>
+            <table>
+              <tbody>
+                <tr><td>Teacher Name</td><td>${escapeHtml(teacher?.name ?? "Unknown")}</td></tr>
+                <tr><td>Contact</td><td>${escapeHtml(teacher?.contact ?? "-")}</td></tr>
+                <tr><td>CNIC</td><td>${escapeHtml(teacher?.cnic ?? "-")}</td></tr>
+              </tbody>
+            </table>
+            <div class="section-title">Loan Details</div>
+            <table>
+              <tbody>
+                <tr><td>Loan Amount</td><td class="amount">${escapeHtml(formatPKR(loan.amount))}</td></tr>
+                <tr><td>Remaining Balance</td><td class="amount">${escapeHtml(formatPKR(loan.remaining))}</td></tr>
+                <tr><td>Date Issued</td><td>${escapeHtml(loan.dateIssued)}</td></tr>
+                <tr><td>Status</td><td>${escapeHtml(loan.status)}</td></tr>
+                <tr><td>Estimated Completion</td><td>${escapeHtml(getEstimatedCompletion(loan))}</td></tr>
+              </tbody>
+            </table>
+            <div class="section-title">Repayment Details</div>
+            <table>
+              <tbody>${repaymentRows}</tbody>
+            </table>
+            <div class="section-title">Notes</div>
+            <table>
+              <tbody><tr><td class="notes">${escapeHtml(loan.notes || "-")}</td></tr></tbody>
+            </table>
+            <div class="footer">
+              <div>Prepared by Admin</div>
+              <div class="signature">Authorized Signature</div>
+            </div>
+          </div>
+          <script>
+            window.onload = function () {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
+  };
+
   const handleDeleteLoan = async (id: string) => {
     await supabase.from("teacher_loans").delete().eq("id", id);
     toast.success("Loan deleted");
     await fetchLoans();
   };
 
-  const openEditLoan = (loan: typeof loans[number]) => {
+  const openEditLoan = (loan: TeacherLoan) => {
     setEditingLoanId(loan.id);
     setForm({
       teacherId: loan.teacherId,
       amount: loan.amount,
       notes: loan.notes,
       dateIssued: loan.dateIssued,
+      deductionStartMonth: loan.deductionStartMonth ?? loan.dateIssued.slice(0, 7),
       repaymentType: loan.repaymentType,
       repaymentMonth: loan.repaymentMonth ?? "",
       repaymentPercentage: loan.repaymentPercentage ?? 0,
@@ -234,6 +375,10 @@ export default function TeacherLoans() {
       toast.error("Enter a valid monthly deduction amount");
       return;
     }
+    if (form.repaymentType !== "manual" && !form.deductionStartMonth) {
+      toast.error("Select the deduction start month");
+      return;
+    }
 
     const currentLoan = loans.find((loan) => loan.id === editingLoanId);
     const nextAmount = form.amount;
@@ -244,6 +389,7 @@ export default function TeacherLoans() {
       amount: nextAmount,
       remaining: nextRemaining,
       dateIssued: form.dateIssued,
+      deductionStartMonth: form.repaymentType === "manual" ? null : form.deductionStartMonth || form.dateIssued.slice(0, 7),
       notes: form.notes,
       repaymentType: form.repaymentType,
       repaymentMonth: form.repaymentType === "specific_month" ? form.repaymentMonth : null,
@@ -259,6 +405,7 @@ export default function TeacherLoans() {
     setForm({
       teacherId: "", amount: 0, notes: "",
       dateIssued: format(new Date(), "yyyy-MM-dd"),
+      deductionStartMonth: format(new Date(), "yyyy-MM"),
       repaymentType: "manual", repaymentMonth: "", repaymentPercentage: 0, repaymentAmount: 0,
     });
   };
@@ -378,7 +525,7 @@ export default function TeacherLoans() {
                 </Select>
               </div>
               <div><Label>Amount</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></div>
-              <div><Label>Date Issued</Label><Input type="date" value={form.dateIssued} onChange={(e) => setForm({ ...form, dateIssued: e.target.value })} /></div>
+              <div><Label>Date Issued</Label><Input type="date" value={form.dateIssued} onChange={(e) => setForm({ ...form, dateIssued: e.target.value, deductionStartMonth: form.deductionStartMonth || e.target.value.slice(0, 7) })} /></div>
 
               <div>
                 <Label>Repayment Method</Label>
@@ -392,6 +539,17 @@ export default function TeacherLoans() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {form.repaymentType !== "manual" && (
+                <div>
+                  <Label>Deduction Start Month</Label>
+                  <Input
+                    type="month"
+                    value={form.deductionStartMonth}
+                    onChange={(e) => setForm({ ...form, deductionStartMonth: e.target.value })}
+                  />
+                </div>
+              )}
 
               {form.repaymentType === "specific_month" && (
                 <div>
@@ -441,7 +599,7 @@ export default function TeacherLoans() {
           {loading ? <p className="text-sm text-muted-foreground text-center py-8">Loading...</p> : loans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans recorded.</p> : filteredLoans.length === 0 ? <p className="text-sm text-muted-foreground text-center py-8">No loans match that teacher name.</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
+                <TableHead>S.No</TableHead><TableHead>Teacher</TableHead><TableHead>Amount</TableHead><TableHead>Remaining</TableHead><TableHead>Repayment</TableHead><TableHead>Start</TableHead><TableHead>Est. Completion</TableHead><TableHead>Date Issued</TableHead><TableHead>Status</TableHead><TableHead>Notes</TableHead>{permissions.canEditTeachers && <TableHead>Actions</TableHead>}
               </TableRow></TableHeader>
               <TableBody>
                 {filteredLoans.map((l, index) => (
@@ -451,12 +609,16 @@ export default function TeacherLoans() {
                     <TableCell>{formatPKR(l.amount)}</TableCell>
                     <TableCell className={l.remaining > 0 ? "text-destructive font-semibold" : "text-primary"}>{formatPKR(l.remaining)}</TableCell>
                      <TableCell><Badge variant="outline">{getRepaymentLabel(l)}</Badge></TableCell>
+                     <TableCell className="text-muted-foreground text-xs">{l.repaymentType === "manual" ? "-" : l.deductionStartMonth ?? l.dateIssued.slice(0, 7)}</TableCell>
                      <TableCell className="text-muted-foreground text-xs">{getEstimatedCompletion(l)}</TableCell>
                      <TableCell>{l.dateIssued}</TableCell>
                     <TableCell><Badge variant={l.status === "active" ? "destructive" : "default"}>{l.status}</Badge></TableCell>
                     <TableCell className="text-muted-foreground">{l.notes}</TableCell>
                     {permissions.canEditTeachers && (
                       <TableCell className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => printLoanReceipt(l)} title="Print Loan Receipt">
+                          <Printer className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => openEditLoan(l)} title="Edit Loan">
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -499,6 +661,7 @@ export default function TeacherLoans() {
             setForm({
               teacherId: "", amount: 0, notes: "",
               dateIssued: format(new Date(), "yyyy-MM-dd"),
+              deductionStartMonth: format(new Date(), "yyyy-MM"),
               repaymentType: "manual", repaymentMonth: "", repaymentPercentage: 0, repaymentAmount: 0,
             });
           }
@@ -537,7 +700,7 @@ export default function TeacherLoans() {
               </Select>
             </div>
             <div><Label>Loan Amount</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></div>
-            <div><Label>Date Issued</Label><Input type="date" value={form.dateIssued} onChange={(e) => setForm({ ...form, dateIssued: e.target.value })} /></div>
+            <div><Label>Date Issued</Label><Input type="date" value={form.dateIssued} onChange={(e) => setForm({ ...form, dateIssued: e.target.value, deductionStartMonth: form.deductionStartMonth || e.target.value.slice(0, 7) })} /></div>
 
             <div>
               <Label>Repayment Method</Label>
@@ -551,6 +714,17 @@ export default function TeacherLoans() {
                 </SelectContent>
               </Select>
             </div>
+
+            {form.repaymentType !== "manual" && (
+              <div>
+                <Label>Deduction Start Month</Label>
+                <Input
+                  type="month"
+                  value={form.deductionStartMonth}
+                  onChange={(e) => setForm({ ...form, deductionStartMonth: e.target.value })}
+                />
+              </div>
+            )}
 
             {form.repaymentType === "specific_month" && (
               <div>

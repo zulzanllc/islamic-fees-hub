@@ -6,22 +6,35 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { usePayments, useStudentPaymentSubmissions } from "@/store/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
+import { getPaymentTotalAmount } from "@/lib/studentPendingFees";
 import { format, subMonths } from "date-fns";
-import { Pencil, Plus, Send } from "lucide-react";
+import { Pencil, Plus, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { StudentPaymentSubmission } from "@/types";
 
 export default function SubmitPayment() {
   const { payments } = usePayments();
-  const { submissions, loading, addSubmission, updateSubmission } = useStudentPaymentSubmissions();
+  const { submissions, loading, addSubmission, updateSubmission, deleteSubmission } = useStudentPaymentSubmissions();
   const { user, permissions } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [emailFilter, setEmailFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editingSubmission, setEditingSubmission] = useState<StudentPaymentSubmission | null>(null);
   const [form, setForm] = useState({
@@ -39,18 +52,29 @@ export default function SubmitPayment() {
     });
   }, []);
 
+  const getSubmissionClasses = (submission: StudentPaymentSubmission) =>
+    submission.classGrades ?? (submission.classGrade ? [submission.classGrade] : []);
+
   const totalCollected = useMemo(
     () =>
       payments
-        .filter((payment) => payment.feeMonth === selectedMonth)
-        .reduce((sum, payment) => sum + payment.amountPaid, 0),
+        .filter(
+          (payment) =>
+            payment.feeMonth === selectedMonth &&
+            payment.paymentMode === "cash"
+        )
+        .reduce((sum, payment) => sum + getPaymentTotalAmount(payment), 0),
     [payments, selectedMonth]
   );
 
   const monthSubmissions = useMemo(
     () =>
       submissions
-        .filter((submission) => submission.feeMonth === selectedMonth)
+        .filter(
+          (submission) =>
+            submission.feeMonth === selectedMonth &&
+            submission.paymentMode === "cash"
+        )
         .sort((a, b) => new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()),
     [submissions, selectedMonth]
   );
@@ -59,6 +83,18 @@ export default function SubmitPayment() {
     (sum, submission) => sum + submission.amountSubmitted,
     0
   );
+  const filteredHistorySubmissions = useMemo(() => {
+    const query = emailFilter.trim().toLowerCase();
+    if (!query) return monthSubmissions;
+
+    return monthSubmissions.filter((submission) => {
+      const submittedByEmail =
+        submission.submittedByEmail ||
+        (submission.submittedBy === user?.id ? user?.email : null) ||
+        "";
+      return submittedByEmail.toLowerCase().includes(query);
+    });
+  }, [monthSubmissions, emailFilter, user?.email, user?.id]);
   const remainingToSubmit = Math.max(0, totalCollected - alreadySubmitted);
   const editableRemainingToSubmit = editingSubmission
     ? Math.max(0, totalCollected - (alreadySubmitted - editingSubmission.amountSubmitted))
@@ -83,13 +119,17 @@ export default function SubmitPayment() {
     setForm({
       amountSubmitted: String(submission.amountSubmitted),
       submissionDate: submission.submissionDate,
-      paymentMode: submission.paymentMode,
+      paymentMode: "cash",
       notes: submission.notes,
     });
     setOpen(true);
   };
 
   const handleSubmit = async () => {
+    if (!permissions.canManageRoles) {
+      toast.error("Only admins can submit payments");
+      return;
+    }
     const amount = Number(form.amountSubmitted);
     if (!amount || amount <= 0) {
       toast.error("Enter a valid amount");
@@ -107,14 +147,17 @@ export default function SubmitPayment() {
 
     const payload = {
       feeMonth: selectedMonth,
+      classGrade: editingSubmission ? editingSubmission.classGrade : null,
+      classGrades: editingSubmission ? editingSubmission.classGrades ?? (editingSubmission.classGrade ? [editingSubmission.classGrade] : null) : null,
       amountSubmitted: amount,
       totalCollectedAtSubmission: totalCollected,
       previouslySubmittedAmount,
       remainingAfterSubmission,
       submissionDate: form.submissionDate,
-      paymentMode: form.paymentMode,
+      paymentMode: "cash",
       notes: form.notes,
       submittedBy: user?.id ?? null,
+      submittedByEmail: user?.email ?? null,
     };
 
     const error = editingSubmission
@@ -134,6 +177,15 @@ export default function SubmitPayment() {
     setOpen(false);
   };
 
+  const handleDeleteSubmission = async (submission: StudentPaymentSubmission) => {
+    const error = await deleteSubmission(submission.id);
+    if (error) {
+      toast.error(error.message || "Failed to delete submission");
+      return;
+    }
+    toast.success(`Submission of ${formatPKR(submission.amountSubmitted)} deleted`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -142,12 +194,14 @@ export default function SubmitPayment() {
           <p className="text-sm text-muted-foreground">Submit collected student fees to administration</p>
         </div>
         <Dialog open={open} onOpenChange={handleOpenChange}>
-          <DialogTrigger asChild>
-            <Button size="sm" disabled={remainingToSubmit <= 0}>
-              <Plus className="h-4 w-4 mr-1" /> Add Submission
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
+          {permissions.canManageRoles && (
+            <DialogTrigger asChild>
+              <Button size="sm" disabled={remainingToSubmit <= 0}>
+                <Plus className="h-4 w-4 mr-1" /> Add Submission
+              </Button>
+            </DialogTrigger>
+          )}
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingSubmission ? "Edit Submitted Payment" : "Submit Payment to Administration"}</DialogTitle>
             </DialogHeader>
@@ -190,15 +244,7 @@ export default function SubmitPayment() {
               </div>
               <div>
                 <Label>Mode</Label>
-                <Select value={form.paymentMode} onValueChange={(value) => setForm({ ...form, paymentMode: value })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="online">Online</SelectItem>
-                    <SelectItem value="cheque">Cheque</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Input value="Cash" disabled />
               </div>
               <div>
                 <Label>Notes</Label>
@@ -228,6 +274,18 @@ export default function SubmitPayment() {
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1">
+          <Label>Email ID</Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={emailFilter}
+              onChange={(event) => setEmailFilter(event.target.value)}
+              placeholder="Search email"
+              className="w-[240px] pl-8"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -256,7 +314,7 @@ export default function SubmitPayment() {
         <CardContent>
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
-          ) : monthSubmissions.length === 0 ? (
+          ) : filteredHistorySubmissions.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No submissions recorded for this month.</p>
           ) : (
             <Table>
@@ -264,20 +322,27 @@ export default function SubmitPayment() {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Month</TableHead>
+                  <TableHead>Class</TableHead>
                   <TableHead>Total Collected</TableHead>
                   <TableHead>Submitted Before</TableHead>
                   <TableHead>Submitted</TableHead>
                   <TableHead>Remaining After</TableHead>
                   <TableHead>Mode</TableHead>
+                  <TableHead>Submitted By</TableHead>
                   <TableHead>Notes</TableHead>
                   {permissions.canManageRoles && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {monthSubmissions.map((submission) => (
+                {filteredHistorySubmissions.map((submission) => (
                   <TableRow key={submission.id}>
                     <TableCell>{submission.submissionDate}</TableCell>
                     <TableCell>{formatFeeMonth(submission.feeMonth)}</TableCell>
+                    <TableCell>
+                      {getSubmissionClasses(submission).length > 0
+                        ? getSubmissionClasses(submission).join(", ")
+                        : "All Classes"}
+                    </TableCell>
                     <TableCell>{formatPKR(submission.totalCollectedAtSubmission)}</TableCell>
                     <TableCell>{formatPKR(submission.previouslySubmittedAmount)}</TableCell>
                     <TableCell className="font-semibold">{formatPKR(submission.amountSubmitted)}</TableCell>
@@ -287,12 +352,44 @@ export default function SubmitPayment() {
                         {submission.paymentMode.replace("_", " ")}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">
+                      {submission.submittedByEmail || (submission.submittedBy === user?.id ? user?.email : null) || (submission.submittedBy ? "Unknown user" : "-")}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{submission.notes || "-"}</TableCell>
                     {permissions.canManageRoles && (
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(submission)}>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(submission)} title="Edit Submission">
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              title="Delete Submission"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Submission</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete the {formatPKR(submission.amountSubmitted)} submission for {formatFeeMonth(submission.feeMonth)}. The amount will return to the remaining balance.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDeleteSubmission(submission)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </TableCell>
                     )}
                   </TableRow>

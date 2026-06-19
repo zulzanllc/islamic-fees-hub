@@ -99,19 +99,26 @@ export function useTeacherLoans() {
   const [loans, setLoans] = useState<TeacherLoan[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const mapLoanRow = (l: any): TeacherLoan => ({
+    id: l.id,
+    teacherId: l.teacher_id,
+    amount: Number(l.amount),
+    remaining: Number(l.remaining),
+    dateIssued: l.date_issued,
+    notes: l.notes,
+    status: l.status as "active" | "paid",
+    repaymentType: l.repayment_type || "manual",
+    repaymentMonth: l.repayment_month || null,
+    repaymentPercentage: l.repayment_percentage != null ? Number(l.repayment_percentage) : null,
+    repaymentAmount: l.repayment_amount != null ? Number(l.repayment_amount) : null,
+    deductionStartMonth: l.deduction_start_month || (l.date_issued ? String(l.date_issued).slice(0, 7) : null),
+  });
+
   const fetchLoans = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from("teacher_loans").select("*").order("created_at", { ascending: false });
     if (data) {
-      setLoans(data.map((l: any) => ({
-        id: l.id, teacherId: l.teacher_id, amount: Number(l.amount),
-        remaining: Number(l.remaining), dateIssued: l.date_issued,
-        notes: l.notes, status: l.status as "active" | "paid",
-        repaymentType: l.repayment_type || "manual",
-        repaymentMonth: l.repayment_month || null,
-        repaymentPercentage: l.repayment_percentage != null ? Number(l.repayment_percentage) : null,
-        repaymentAmount: l.repayment_amount != null ? Number(l.repayment_amount) : null,
-      })));
+      setLoans(data.map(mapLoanRow));
     }
     setLoading(false);
   }, []);
@@ -119,14 +126,15 @@ export function useTeacherLoans() {
   useEffect(() => { fetchLoans(); }, [fetchLoans]);
 
   const addLoan = useCallback(async (loan: Omit<TeacherLoan, "id">) => {
-    await supabase.from("teacher_loans").insert({
+    const { data } = await supabase.from("teacher_loans").insert({
       teacher_id: loan.teacherId, amount: loan.amount, remaining: loan.remaining,
       date_issued: loan.dateIssued, notes: loan.notes, status: loan.status,
       repayment_type: loan.repaymentType || "manual",
       repayment_month: loan.repaymentMonth || null,
       repayment_percentage: loan.repaymentPercentage || null,
       repayment_amount: loan.repaymentAmount || null,
-    } as any);
+      deduction_start_month: loan.deductionStartMonth || (loan.dateIssued ? loan.dateIssued.slice(0, 7) : null),
+    } as any).select("*").single();
     await writeAppLog({
       action: "teacher_loan_created",
       entityType: "teacher_loan",
@@ -135,6 +143,7 @@ export function useTeacherLoans() {
       details: loan as Record<string, unknown>,
     });
     await fetchLoans();
+    return data ? mapLoanRow(data) : null;
   }, [fetchLoans]);
 
   const updateLoan = useCallback(async (id: string, updates: Partial<TeacherLoan>) => {
@@ -149,6 +158,7 @@ export function useTeacherLoans() {
     if (updates.repaymentMonth !== undefined) mapped.repayment_month = updates.repaymentMonth;
     if (updates.repaymentPercentage !== undefined) mapped.repayment_percentage = updates.repaymentPercentage;
     if (updates.repaymentAmount !== undefined) mapped.repayment_amount = updates.repaymentAmount;
+    if (updates.deductionStartMonth !== undefined) mapped.deduction_start_month = updates.deductionStartMonth;
     await supabase.from("teacher_loans").update(mapped).eq("id", id);
     await writeAppLog({
       action: "teacher_loan_updated",

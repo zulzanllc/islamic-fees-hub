@@ -16,6 +16,8 @@ import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
+import { getTeacherPendingSalaryDetails } from "@/lib/teacherPendingSalary";
+import { getLoanDeductionStartMonth, getTeacherLoansWithCalculatedBalance, isLoanDeductionActiveForMonth } from "@/lib/teacherLoanBalance";
 import { useAuth } from "@/hooks/useAuth";
 import ProofUpload from "@/components/ProofUpload";
 import type { TeacherLoan } from "@/types";
@@ -25,6 +27,7 @@ type LoanRepaymentEdit = {
   repaymentMonth: string;
   repaymentPercentage: number;
   repaymentAmount: number;
+  deductionStartMonth: string;
 };
 
 export default function TeacherSalaries() {
@@ -57,7 +60,8 @@ export default function TeacherSalaries() {
   const [loanRepaymentEdits, setLoanRepaymentEdits] = useState<Record<string, LoanRepaymentEdit>>({});
 
   const selectedTeacher = teachers.find((t) => t.id === form.teacherId);
-  const activeLoans = loans.filter((l) => l.teacherId === form.teacherId && l.status === "active");
+  const calculatedLoans = getTeacherLoansWithCalculatedBalance(loans, salaries, advances, form.teacherId);
+  const activeLoans = calculatedLoans.filter((l) => l.status === "active");
   const totalLoanRemaining = activeLoans.reduce((s, l) => s + l.remaining, 0);
   const selectedTeacherMonthlySalary = selectedTeacher
     ? getEffectiveTeacherMonthlySalary(
@@ -91,6 +95,7 @@ export default function TeacherSalaries() {
           repaymentMonth: loan.repaymentMonth ?? "",
           repaymentPercentage: loan.repaymentPercentage ?? 0,
           repaymentAmount: loan.repaymentAmount ?? 0,
+          deductionStartMonth: getLoanDeductionStartMonth(loan),
         };
       });
     setLoanRepaymentEdits(nextEdits);
@@ -116,10 +121,12 @@ export default function TeacherSalaries() {
       repaymentMonth: edit.repaymentType === "specific_month" ? edit.repaymentMonth : null,
       repaymentPercentage: edit.repaymentType === "percentage" ? edit.repaymentPercentage : null,
       repaymentAmount: edit.repaymentType === "custom_amount" ? edit.repaymentAmount : null,
+      deductionStartMonth: edit.deductionStartMonth,
     };
   };
 
   const getScheduledDeductionForLoan = (loan: TeacherLoan) => {
+    if (!isLoanDeductionActiveForMonth(loan, form.month)) return 0;
     if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
       return Math.min(baseSalary * (loan.repaymentPercentage / 100), loan.remaining);
     }
@@ -147,6 +154,9 @@ export default function TeacherSalaries() {
 
   const getLoanDeductionNote = (loan: TeacherLoan, scheduledDeduction: number) => {
     if (scheduledDeduction > 0) return "Deducting this salary";
+    if (!isLoanDeductionActiveForMonth(loan, form.month)) {
+      return `Deduction starts in ${getLoanDeductionStartMonth(loan)}`;
+    }
     if (loan.repaymentType === "specific_month" && loan.repaymentMonth !== form.month) {
       return `Scheduled for ${loan.repaymentMonth || "a specific month"}`;
     }
@@ -175,27 +185,24 @@ export default function TeacherSalaries() {
   const netPaid = baseSalary + form.bonusAmount - loanDeduction - advanceForMonth - form.otherDeduction;
 
   const currentMonth = format(new Date(), "yyyy-MM");
-  const paidTeacherIds = new Set(salaries.filter((s) => s.month === currentMonth).map((s) => s.teacherId));
-  const pendingTeachers = teachers.filter(
-    (t) =>
-      t.status === "active" &&
-      !paidTeacherIds.has(t.id) &&
-      getProratedMonthlyAmount(
-        getEffectiveTeacherMonthlySalary(t.monthlySalary, t.joiningDate, currentMonth, settings.annualIncrementPercentage),
-        t.joiningDate,
-        currentMonth
-      ) > 0
+  const pendingSalaryDetails = useMemo(
+    () =>
+      teachers
+        .filter((teacher) => teacher.status === "active")
+        .map((teacher) =>
+          getTeacherPendingSalaryDetails({
+            teacher,
+            month: currentMonth,
+            salaries,
+            loans,
+            advances,
+            annualIncrementPercentage: settings.annualIncrementPercentage,
+          })
+        )
+        .filter((details) => details.status !== "paid" && details.pendingAmount > 0),
+    [teachers, salaries, loans, advances, currentMonth, settings.annualIncrementPercentage]
   );
-  const pendingTeacherTotal = pendingTeachers.reduce(
-    (sum, teacher) =>
-      sum +
-      getProratedMonthlyAmount(
-        getEffectiveTeacherMonthlySalary(teacher.monthlySalary, teacher.joiningDate, currentMonth, settings.annualIncrementPercentage),
-        teacher.joiningDate,
-        currentMonth
-      ),
-    0
-  );
+  const pendingTeacherTotal = pendingSalaryDetails.reduce((sum, details) => sum + details.pendingAmount, 0);
 
   const paidForSelectedMonth = new Set(salaries.filter((s) => s.month === form.month).map((s) => s.teacherId));
   const unpaidActiveTeachers = teachers.filter((teacher) => teacher.status === "active" && !paidForSelectedMonth.has(teacher.id));
@@ -237,6 +244,10 @@ export default function TeacherSalaries() {
         toast.error("Enter a valid loan monthly deduction amount");
         return;
       }
+      if (loan.repaymentType !== "manual" && !loan.deductionStartMonth) {
+        toast.error("Select the loan deduction start month");
+        return;
+      }
     }
     try {
       await addSalary({
@@ -250,7 +261,8 @@ export default function TeacherSalaries() {
           item.loan.repaymentType !== item.effectiveLoan.repaymentType ||
           item.loan.repaymentMonth !== item.effectiveLoan.repaymentMonth ||
           item.loan.repaymentPercentage !== item.effectiveLoan.repaymentPercentage ||
-          item.loan.repaymentAmount !== item.effectiveLoan.repaymentAmount;
+          item.loan.repaymentAmount !== item.effectiveLoan.repaymentAmount ||
+          item.loan.deductionStartMonth !== item.effectiveLoan.deductionStartMonth;
 
         if (item.deduction <= 0 && !repaymentChanged) continue;
 
@@ -260,6 +272,7 @@ export default function TeacherSalaries() {
           loanUpdates.repaymentMonth = item.effectiveLoan.repaymentMonth;
           loanUpdates.repaymentPercentage = item.effectiveLoan.repaymentPercentage;
           loanUpdates.repaymentAmount = item.effectiveLoan.repaymentAmount;
+          loanUpdates.deductionStartMonth = item.effectiveLoan.deductionStartMonth;
         }
         if (item.deduction > 0) {
           loanUpdates.remaining = item.remainingAfter;
@@ -292,6 +305,8 @@ export default function TeacherSalaries() {
     const s = salaries.find((sal) => sal.id === salaryId);
     if (!s) return;
     const teacher = teachers.find((t) => t.id === s.teacherId);
+    const advanceDeduction = getAdvanceDeductionForSalary(s.teacherId, s.month);
+    const loanOnlyDeduction = Math.max(0, s.loanDeduction - advanceDeduction);
     const win = window.open("", "_blank", "width=600,height=700");
     if (!win) return;
     win.document.write(`
@@ -336,7 +351,8 @@ export default function TeacherSalaries() {
         <tbody>
           <tr><td>Base Salary</td><td class="amount">${formatPKR(s.baseSalary)}</td></tr>
           ${s.bonusAmount > 0 ? `<tr><td>Bonus</td><td class="amount">${formatPKR(s.bonusAmount)}</td></tr>` : ""}
-          <tr><td>Loan Deduction</td><td class="amount deduction">-${formatPKR(s.loanDeduction)}</td></tr>
+          <tr><td>Loan Deduction</td><td class="amount deduction">-${formatPKR(loanOnlyDeduction)}</td></tr>
+          <tr><td>Advance Salary Deduction</td><td class="amount deduction">-${formatPKR(advanceDeduction)}</td></tr>
           <tr><td>Other Deduction</td><td class="amount deduction">-${formatPKR(s.otherDeduction)}</td></tr>
           <tr class="net-row"><td><strong>Net Pay</strong></td><td class="amount">${formatPKR(s.netPaid)}</td></tr>
         </tbody>
@@ -506,6 +522,7 @@ export default function TeacherSalaries() {
                           repaymentMonth: loan.repaymentMonth ?? "",
                           repaymentPercentage: loan.repaymentPercentage ?? 0,
                           repaymentAmount: loan.repaymentAmount ?? 0,
+                          deductionStartMonth: getLoanDeductionStartMonth(loan),
                         };
                         return (
                           <div key={loan.id} className="rounded-md border border-border bg-background p-2 text-xs space-y-1">
@@ -536,6 +553,18 @@ export default function TeacherSalaries() {
                                   </SelectContent>
                                 </Select>
                               </div>
+
+                              {edit.repaymentType !== "manual" && (
+                                <div>
+                                  <Label className="text-xs">Deduction Start Month</Label>
+                                  <Input
+                                    type="month"
+                                    value={edit.deductionStartMonth}
+                                    onChange={(event) => updateLoanRepaymentEdit(loan.id, { deductionStartMonth: event.target.value })}
+                                    className="h-8 bg-background"
+                                  />
+                                </div>
+                              )}
 
                               {edit.repaymentType === "specific_month" && (
                                 <div>
@@ -606,7 +635,7 @@ export default function TeacherSalaries() {
       </div>
 
       {/* Pending Teachers */}
-      {pendingTeachers.length > 0 && (
+      {pendingSalaryDetails.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -616,18 +645,55 @@ export default function TeacherSalaries() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {pendingTeachers.map((t, index) => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
-                  <span className="text-sm font-medium"><span className="text-xs text-muted-foreground font-mono mr-2">{index + 1}.</span>{t.name}</span>
-                  <span className="text-sm font-semibold text-destructive">
-                    {formatPKR(
-                      getProratedMonthlyAmount(
-                        getEffectiveTeacherMonthlySalary(t.monthlySalary, t.joiningDate, currentMonth, settings.annualIncrementPercentage),
-                        t.joiningDate,
-                        currentMonth
-                      )
+              {pendingSalaryDetails.map((details, index) => (
+                <div key={details.teacher.id} className="space-y-2 rounded-md bg-muted p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">
+                      <span className="text-xs text-muted-foreground font-mono mr-2">{index + 1}.</span>
+                      {details.teacher.name}
+                    </span>
+                    <span className="text-sm font-semibold text-destructive">
+                      {formatPKR(details.pendingAmount)}
+                    </span>
+                  </div>
+                  <div className="space-y-1 border-t border-border pt-2 text-xs">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Base Salary</span>
+                      <span className="font-medium">{formatPKR(details.baseSalary)}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Loan Deduction</span>
+                      <span className="font-medium text-destructive">
+                        {details.loanDeduction > 0 ? `-${formatPKR(details.loanDeduction)}` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Advance Deduction</span>
+                      <span className="font-medium text-destructive">
+                        {details.advanceTaken > 0 ? `-${formatPKR(details.advanceTaken)}` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Other Deduction</span>
+                      <span className="font-medium text-destructive">
+                        {details.otherDeduction > 0 ? `-${formatPKR(details.otherDeduction)}` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Net After Deductions</span>
+                      <span className="font-medium">{formatPKR(details.expectedSalary)}</span>
+                    </div>
+                    {details.paidAmount > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Already Paid</span>
+                        <span className="font-medium text-primary">{formatPKR(details.paidAmount)}</span>
+                      </div>
                     )}
-                  </span>
+                    <div className="flex justify-between gap-2 border-t border-border pt-1">
+                      <span className="font-medium">Final Pending</span>
+                      <span className="font-semibold text-destructive">{formatPKR(details.pendingAmount)}</span>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

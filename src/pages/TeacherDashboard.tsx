@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { getProratedMonthlyAmount } from "@/lib/proration";
 import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
 import { getTeacherPendingSalaryDetails } from "@/lib/teacherPendingSalary";
+import { getTeacherLoansWithCalculatedBalance } from "@/lib/teacherLoanBalance";
 import { DashboardDateFilter } from "@/components/DashboardDateFilter";
 import {
   createDefaultDashboardDateFilter,
@@ -112,7 +113,12 @@ export default function TeacherDashboard() {
     .filter((s) => s.paymentMode === "online")
     .reduce((sum, salary) => sum + salary.netPaid, 0);
 
-  const activeLoansTotal = loans
+  const calculatedLoans = useMemo(
+    () => getTeacherLoansWithCalculatedBalance(loans, salaries, advances),
+    [loans, salaries, advances]
+  );
+
+  const activeLoansTotal = calculatedLoans
     .filter((l) => l.status === "active" && isDateOnOrBefore(l.dateIssued, range.end))
     .reduce((s, l) => s + l.remaining, 0);
 

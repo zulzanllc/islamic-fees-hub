@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useStudents } from "@/store/useStore";
+import { useStudents, usePayments } from "@/store/useStore";
 import { Student } from "@/types";
 import { useClasses } from "@/hooks/useClasses";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +39,7 @@ import { format } from "date-fns";
 import StudentCsvImport from "@/components/StudentCsvImport";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 
 type StudentForm = {
   name: string;
@@ -67,16 +68,19 @@ const emptyForm: StudentForm = {
 };
 
 export default function Students() {
-  const { students, addStudent, bulkAddStudents, updateStudent, deleteStudent } = useStudents();
+  const { students, addStudent, bulkAddStudents, updateStudent, deleteStudent, bulkDeleteStudents } = useStudents();
+  const { payments } = usePayments();
   const { classNames } = useClasses();
-  const { permissions } = useAuth();
+  const { permissions, isAdmin } = useAuth();
   const [search, setSearch] = useState("");
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StudentForm>(emptyForm);
   const [classSearch, setClassSearch] = useState("");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const navigate = useNavigate();
+  const canBulkDeleteStudents = isAdmin;
 
   const filtered = students.filter((s) => {
     const q = search.toLowerCase();
@@ -109,6 +113,26 @@ export default function Students() {
     if (!query) return classNames;
     return classNames.filter((className) => className.toLowerCase().includes(query));
   }, [classNames, classSearch]);
+
+  const filteredIds = filtered.map((student) => student.id);
+  const selectedFilteredIds = selectedStudentIds.filter((id) => filteredIds.includes(id));
+  const allFilteredSelected = filteredIds.length > 0 && selectedFilteredIds.length === filteredIds.length;
+  const someFilteredSelected = selectedFilteredIds.length > 0 && !allFilteredSelected;
+
+  const toggleStudentSelection = (id: string) => {
+    setSelectedStudentIds((current) =>
+      current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id]
+    );
+  };
+
+  const toggleAllFilteredStudents = () => {
+    setSelectedStudentIds((current) => {
+      if (allFilteredSelected) {
+        return current.filter((id) => !filteredIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...filteredIds]));
+    });
+  };
 
   const handleSubmit = async () => {
     if (!form.name || !form.classGrade) return;
@@ -152,7 +176,28 @@ export default function Students() {
   const handleDelete = (id: string) => {
     if (window.confirm("Are you sure you want to delete this student?")) {
       deleteStudent(id);
+      setSelectedStudentIds((current) => current.filter((selectedId) => selectedId !== id));
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!canBulkDeleteStudents) {
+      toast.error("Only admins can bulk delete students");
+      return;
+    }
+    if (selectedStudentIds.length === 0) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedStudentIds.length} selected student${selectedStudentIds.length === 1 ? "" : "s"}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    const error = await bulkDeleteStudents(selectedStudentIds);
+    if (error) {
+      toast.error("Failed to delete selected students");
+      return;
+    }
+    toast.success(`Deleted ${selectedStudentIds.length} student${selectedStudentIds.length === 1 ? "" : "s"}`);
+    setSelectedStudentIds([]);
   };
 
   return (
@@ -165,12 +210,17 @@ export default function Students() {
           </p>
         </div>
         <div className="flex gap-2">
+          {canBulkDeleteStudents && selectedStudentIds.length > 0 && (
+            <Button size="sm" variant="destructive" onClick={handleBulkDelete}>
+              <Trash2 className="h-4 w-4 mr-1" /> Delete Selected ({selectedStudentIds.length})
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
               const headers = ["S.No", "Code", "Name", "Guardian", "Class", "Monthly Fee", "Pending Fees", "Contact", "Joining Date", "Leaving Date", "Status"];
-              const rows = filtered.map((s, index) => [String(index + 1), s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), String(s.openingDueAmount ?? 0), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
+              const rows = filtered.map((s, index) => [String(index + 1), s.studentCode, s.name, s.guardianName, s.classGrade, String(s.monthlyFee), String(getStudentPendingFeeBalance(s, payments)), s.contact, s.enrollmentDate, s.leavingDate ?? "", s.status]);
               downloadCSV("students.csv", headers, rows, {
                 delimiter: "\t",
                 encoding: "utf-16le",
@@ -198,7 +248,7 @@ export default function Students() {
                 </Button>
               </DialogTrigger>
             )}
-            <DialogContent>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingId ? "Edit Student" : "Add Student"}
@@ -405,6 +455,15 @@ export default function Students() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canBulkDeleteStudents && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
+                      onCheckedChange={toggleAllFilteredStudents}
+                      aria-label="Select all students"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>S.No</TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
@@ -422,20 +481,29 @@ export default function Students() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={canBulkDeleteStudents ? 13 : 12} className="text-center py-8 text-muted-foreground">
                     No students found.
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((s, index) => (
                   <TableRow key={s.id}>
+                    {canBulkDeleteStudents && (
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedStudentIds.includes(s.id)}
+                          onCheckedChange={() => toggleStudentSelection(s.id)}
+                          aria-label={`Select ${s.name}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="text-xs text-muted-foreground font-mono">{index + 1}</TableCell>
                     <TableCell className="text-xs text-muted-foreground font-mono">{s.studentCode}</TableCell>
                     <TableCell className="font-medium">{s.name}</TableCell>
                     <TableCell>{s.guardianName}</TableCell>
                     <TableCell>{s.classGrade}</TableCell>
                     <TableCell>{s.monthlyFee ? formatPKR(s.monthlyFee) : "-"}</TableCell>
-                    <TableCell>{s.openingDueAmount ? formatPKR(s.openingDueAmount) : "-"}</TableCell>
+                      <TableCell>{getStudentPendingFeeBalance(s, payments) > 0 ? formatPKR(getStudentPendingFeeBalance(s, payments)) : "-"}</TableCell>
                     <TableCell>{s.contact}</TableCell>
                     <TableCell>{s.enrollmentDate}</TableCell>
                     <TableCell>{s.leavingDate ?? "-"}</TableCell>

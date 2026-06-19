@@ -24,23 +24,14 @@ export function getStudentFeeStartDate(joiningDate: string) {
 export function getStudentOpeningDueInstallments(
   monthlyAmount: number,
   joiningDate: string,
-  openingDueAmount = 0
+  openingDueAmount = 0,
+  anchorMonth = monthKey(new Date().getFullYear(), new Date().getMonth())
 ) {
-  const joined = parseDate(joiningDate);
-  if (!joined || monthlyAmount <= 0 || openingDueAmount <= 0) return [];
-
-  const installmentCount = Math.ceil(openingDueAmount / monthlyAmount);
-  const remainder = openingDueAmount % monthlyAmount;
-  const firstAmount = remainder > 0 ? remainder : monthlyAmount;
-  const firstMonth = new Date(joined.getFullYear(), joined.getMonth() - installmentCount, 1);
-
-  return Array.from({ length: installmentCount }, (_, index) => {
-    const monthDate = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1);
-    return {
-      month: monthKey(monthDate.getFullYear(), monthDate.getMonth()),
-      due: index === 0 ? firstAmount : monthlyAmount,
-    };
-  });
+  void monthlyAmount;
+  void joiningDate;
+  void openingDueAmount;
+  void anchorMonth;
+  return [];
 }
 
 export function getProratedMonthlyAmount(
@@ -154,13 +145,11 @@ export function getStudentTotalDueThroughMonth(
   leavingDate?: string | null,
   openingDueAmount = 0
 ) {
-  const openingDue = getStudentOpeningDueInstallments(monthlyAmount, joiningDate, openingDueAmount)
-    .filter((installment) => installment.month <= month)
-    .reduce((sum, installment) => sum + installment.due, 0);
-  const monthlyDue = getMonthKeysThrough(joiningDate, month, leavingDate).reduce(
-    (sum, monthKeyValue) => sum + getStudentMonthlyDue(monthlyAmount, joiningDate, monthKeyValue, leavingDate),
+  void openingDueAmount;
+
+  return getMonthKeysThrough(joiningDate, month, leavingDate).reduce(
+    (sum, monthKeyValue) =>
+      sum + getStudentMonthlyDue(monthlyAmount, joiningDate, monthKeyValue, leavingDate),
     0
   );
-
-  return openingDue + monthlyDue;
 }

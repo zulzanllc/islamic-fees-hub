@@ -18,7 +18,7 @@ import {
 import { useStudents, usePayments, useFeeStructures } from "@/store/useStore";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
-import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 import { toast } from "sonner";
 
@@ -71,11 +71,8 @@ export default function StudentLeaving() {
     }
 
     const enrollment = parseISO(selectedStudent.enrollmentDate);
-    const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, selectedStudent.enrollmentDate, selectedStudent.openingDueAmount ?? 0);
-    const feeStartDate = openingInstallments[0]
-      ? parseISO(`${openingInstallments[0].month}-01`)
-      : getStudentFeeStartDate(selectedStudent.enrollmentDate);
     const leaving = parseISO(leavingDate);
+    const feeStartDate = getStudentFeeStartDate(selectedStudent.enrollmentDate);
     if (Number.isNaN(enrollment.getTime()) || Number.isNaN(leaving.getTime()) || !feeStartDate) {
       return { valid: false, months: [] as PreviewMonth[], message: "Enter a valid leaving date." };
     }
@@ -88,8 +85,7 @@ export default function StudentLeaving() {
       end: startOfMonth(leaving),
     }).map((monthDate) => {
       const month = format(monthDate, "yyyy-MM");
-      const openingInstallment = openingInstallments.find((installment) => installment.month === month);
-      const due = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, selectedStudent.enrollmentDate, month, leavingDate);
+      const due = getStudentMonthlyDue(monthlyFee, selectedStudent.enrollmentDate, month, leavingDate);
       const paid = payments
         .filter((payment) => (
           payment.studentId === selectedStudent.id &&

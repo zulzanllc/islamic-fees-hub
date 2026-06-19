@@ -63,6 +63,7 @@ export type Database = {
         Row: {
           amount_paid: number
           collected_by: string | null
+          collected_by_email: string | null
           created_at: string
           date: string
           fee_month: string
@@ -70,6 +71,7 @@ export type Database = {
           id: string
           notes: string
           payment_mode: string
+          pending_fee_paid: number
           receipt_number: string
           receipt_printed: boolean
           student_id: string
@@ -77,6 +79,7 @@ export type Database = {
         Insert: {
           amount_paid?: number
           collected_by?: string | null
+          collected_by_email?: string | null
           created_at?: string
           date?: string
           fee_month?: string
@@ -84,6 +87,7 @@ export type Database = {
           id?: string
           notes?: string
           payment_mode?: string
+          pending_fee_paid?: number
           receipt_number?: string
           receipt_printed?: boolean
           student_id: string
@@ -91,6 +95,7 @@ export type Database = {
         Update: {
           amount_paid?: number
           collected_by?: string | null
+          collected_by_email?: string | null
           created_at?: string
           date?: string
           fee_month?: string
@@ -98,6 +103,7 @@ export type Database = {
           id?: string
           notes?: string
           payment_mode?: string
+          pending_fee_paid?: number
           receipt_number?: string
           receipt_printed?: boolean
           student_id?: string
@@ -197,6 +203,7 @@ export type Database = {
           amount: number
           created_at: string
           date_issued: string
+          deduction_start_month: string | null
           id: string
           notes: string
           remaining: number
@@ -211,6 +218,7 @@ export type Database = {
           amount?: number
           created_at?: string
           date_issued?: string
+          deduction_start_month?: string | null
           id?: string
           notes?: string
           remaining?: number
@@ -225,6 +233,7 @@ export type Database = {
           amount?: number
           created_at?: string
           date_issued?: string
+          deduction_start_month?: string | null
           id?: string
           notes?: string
           remaining?: number
@@ -337,6 +346,8 @@ export type Database = {
       student_payment_submissions: {
         Row: {
           amount_submitted: number
+          class_grade: string | null
+          class_grades: string[] | null
           created_at: string
           fee_month: string
           id: string
@@ -346,10 +357,13 @@ export type Database = {
           remaining_after_submission: number
           submission_date: string
           submitted_by: string | null
+          submitted_by_email: string | null
           total_collected_at_submission: number
         }
         Insert: {
           amount_submitted?: number
+          class_grade?: string | null
+          class_grades?: string[] | null
           created_at?: string
           fee_month: string
           id?: string
@@ -359,10 +373,13 @@ export type Database = {
           remaining_after_submission?: number
           submission_date?: string
           submitted_by?: string | null
+          submitted_by_email?: string | null
           total_collected_at_submission?: number
         }
         Update: {
           amount_submitted?: number
+          class_grade?: string | null
+          class_grades?: string[] | null
           created_at?: string
           fee_month?: string
           id?: string
@@ -372,6 +389,7 @@ export type Database = {
           remaining_after_submission?: number
           submission_date?: string
           submitted_by?: string | null
+          submitted_by_email?: string | null
           total_collected_at_submission?: number
         }
         Relationships: []

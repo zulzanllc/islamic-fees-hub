@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
 import { formatPKR } from "@/lib/currency";
 import { getStudentMonthlyDue } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
+import { getPaymentTotalAmount, getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 import { DashboardDateFilter } from "@/components/DashboardDateFilter";
 import {
   createDefaultDashboardDateFilter,
@@ -72,26 +73,27 @@ export default function Dashboard() {
             month,
             student.leavingDate
           ),
-        student.openingDueAmount ?? 0
+        0
       );
+      const standalonePending = getStudentPendingFeeBalance(student, payments);
       const paid = paidByStudent.get(student.id) ?? 0;
-      const pending = Math.max(0, expected - paid);
+      const pending = Math.max(0, expected - paid) + standalonePending;
 
-      totalExpected += expected;
+      totalExpected += expected + standalonePending;
       totalPending += pending;
       if (pending > 0) pendingCount += 1;
     });
 
     return { totalExpected, totalPending, pendingCount };
-  }, [studentsInRange, rangeMonths, tuitionPaymentsForRangeMonths, fees]);
+  }, [studentsInRange, rangeMonths, tuitionPaymentsForRangeMonths, fees, payments]);
 
-  const totalCollection = paymentsInRange.reduce((s, p) => s + p.amountPaid, 0);
+  const totalCollection = paymentsInRange.reduce((s, p) => s + getPaymentTotalAmount(p), 0);
   const tuitionCollection = paymentsInRange
     .filter((p) => p.feeType === "tuition")
-    .reduce((s, p) => s + p.amountPaid, 0);
+    .reduce((s, p) => s + getPaymentTotalAmount(p), 0);
   const registrationCollection = paymentsInRange
     .filter((p) => p.feeType === "registration")
-    .reduce((s, p) => s + p.amountPaid, 0);
+    .reduce((s, p) => s + getPaymentTotalAmount(p), 0);
 
   const recentPayments = useMemo(
     () => [...paymentsInRange].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5),
@@ -102,7 +104,7 @@ export default function Dashboard() {
     return getRangeChartMonths(range).map((month) => {
       const revenue = payments
         .filter((p) => p.date.startsWith(month.value))
-        .reduce((s, p) => s + p.amountPaid, 0);
+        .reduce((s, p) => s + getPaymentTotalAmount(p), 0);
       return { month: month.label, revenue };
     });
   }, [payments, range]);
@@ -182,7 +184,7 @@ export default function Dashboard() {
                       </p>
                       <p className="text-xs text-muted-foreground capitalize">{p.feeType} · {p.date}</p>
                     </div>
-                    <span className="text-sm font-semibold text-primary">{formatPKR(p.amountPaid)}</span>
+                    <span className="text-sm font-semibold text-primary">{formatPKR(getPaymentTotalAmount(p))}</span>
                   </div>
                 ))}
               </div>

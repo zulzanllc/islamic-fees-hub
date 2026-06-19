@@ -2,10 +2,12 @@ import type { Teacher, TeacherLoan } from "@/types";
 import { formatPKR } from "@/lib/currency";
 import { getProratedMonthlyAmount, isJoiningMonth } from "@/lib/proration";
 import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
+import { getTeacherLoansWithCalculatedBalance, isLoanDeductionActiveForMonth } from "@/lib/teacherLoanBalance";
 
 type TeacherSalaryPayment = {
   teacherId: string;
   month: string;
+  datePaid?: string;
   baseSalary?: number;
   netPaid: number;
   loanDeduction?: number;
@@ -50,9 +52,18 @@ export function getTeacherPendingSalaryDetails({
   const baseSalary = recordedBaseSalary > 0
     ? recordedBaseSalary
     : getProratedMonthlyAmount(effectiveMonthlySalary, teacher.joiningDate, month);
-  const activeLoans = loans.filter((loan) => loan.teacherId === teacher.id && loan.status === "active");
+  const activeLoans = getTeacherLoansWithCalculatedBalance(loans, salaries, advances, teacher.id)
+    .filter((loan) => loan.status === "active");
 
   const loanBreakdown = activeLoans.map((loan) => {
+    if (!isLoanDeductionActiveForMonth(loan, month)) {
+      return {
+        id: loan.id,
+        amount: loan.amount,
+        modeLabel: `Starts in ${loan.deductionStartMonth || loan.dateIssued.slice(0, 7)}`,
+        deduction: 0,
+      };
+    }
     if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
       return {
         id: loan.id,
@@ -86,11 +97,12 @@ export function getTeacherPendingSalaryDetails({
   });
 
   const loanDeduction = activeLoans.reduce((sum, loan) => {
+    if (!isLoanDeductionActiveForMonth(loan, month)) return sum;
     if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
-      return sum + (baseSalary * loan.repaymentPercentage) / 100;
+      return sum + Math.min((baseSalary * loan.repaymentPercentage) / 100, loan.remaining);
     }
     if (loan.repaymentType === "custom_amount" && loan.repaymentAmount) {
-      return sum + Math.min(loan.repaymentAmount, baseSalary);
+      return sum + Math.min(loan.repaymentAmount, Math.min(loan.remaining, baseSalary));
     }
     if (loan.repaymentType === "specific_month" && loan.repaymentMonth === month) {
       return sum + Math.min(loan.remaining, baseSalary);
@@ -134,6 +146,7 @@ export function getTeacherPendingSalaryDetails({
       estCompletion = "Completed";
     } else {
       const totalMonthlyDeduction = activeLoans.reduce((sum, loan) => {
+        if (!isLoanDeductionActiveForMonth(loan, month)) return sum;
         if (loan.repaymentType === "percentage" && loan.repaymentPercentage) {
           return sum + effectiveMonthlySalary * (loan.repaymentPercentage / 100);
         }
@@ -143,7 +156,7 @@ export function getTeacherPendingSalaryDetails({
         return sum;
       }, 0);
       const specificMonths = activeLoans
-        .filter((loan) => loan.repaymentType === "specific_month" && loan.repaymentMonth)
+        .filter((loan) => isLoanDeductionActiveForMonth(loan, month) && loan.repaymentType === "specific_month" && loan.repaymentMonth)
         .map((loan) => loan.repaymentMonth!);
 
       if (totalMonthlyDeduction > 0) {

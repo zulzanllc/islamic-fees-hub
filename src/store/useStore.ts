@@ -134,7 +134,22 @@ export function useStudents() {
     await fetchStudents();
   }, [fetchStudents]);
 
-  return { students, loading, addStudent, bulkAddStudents, updateStudent, deleteStudent };
+  const bulkDeleteStudents = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return null;
+    const { error } = await supabase.from("students").delete().in("id", ids);
+    if (!error) {
+      await writeAppLog({
+        action: "students_deleted",
+        entityType: "student",
+        message: `Deleted ${ids.length} students`,
+        details: { count: ids.length, ids },
+      });
+      await fetchStudents();
+    }
+    return error;
+  }, [fetchStudents]);
+
+  return { students, loading, addStudent, bulkAddStudents, updateStudent, deleteStudent, bulkDeleteStudents };
 }
 
 export function useFeeStructures() {
@@ -224,11 +239,13 @@ export function usePayments() {
           studentId: p.student_id,
           feeType: p.fee_type as "tuition" | "registration",
           amountPaid: Number(p.amount_paid),
+          pendingFeePaid: Number((p as any).pending_fee_paid ?? 0),
           date: p.date,
           feeMonth: p.fee_month ?? "",
           receiptNumber: p.receipt_number,
           notes: p.notes,
           collectedBy: p.collected_by,
+          collectedByEmail: p.collected_by_email,
           paymentMode: p.payment_mode,
           receiptPrinted: (p as any).receipt_printed ?? false,
           proofImageUrl: (p as any).proof_image_url ?? "",
@@ -248,11 +265,13 @@ export function usePayments() {
         student_id: payment.studentId,
         fee_type: payment.feeType,
         amount_paid: payment.amountPaid,
+        pending_fee_paid: payment.pendingFeePaid ?? 0,
         date: payment.date,
         fee_month: payment.feeMonth,
         receipt_number: receiptNumber,
         notes: payment.notes,
         collected_by: payment.collectedBy,
+        collected_by_email: payment.collectedByEmail ?? null,
         payment_mode: payment.paymentMode,
         proof_image_url: (payment as any).proofImageUrl || "",
       })
@@ -268,6 +287,7 @@ export function usePayments() {
         details: {
           studentId: payment.studentId,
           amountPaid: payment.amountPaid,
+          pendingFeePaid: payment.pendingFeePaid ?? 0,
           feeMonth: payment.feeMonth,
           paymentMode: payment.paymentMode,
         },
@@ -277,11 +297,13 @@ export function usePayments() {
         studentId: data.student_id,
         feeType: data.fee_type as "tuition" | "registration",
         amountPaid: Number(data.amount_paid),
+        pendingFeePaid: Number((data as any).pending_fee_paid ?? 0),
         date: data.date,
         feeMonth: data.fee_month ?? "",
         receiptNumber: data.receipt_number,
         notes: data.notes,
         collectedBy: data.collected_by,
+        collectedByEmail: data.collected_by_email,
         paymentMode: data.payment_mode,
         proofImageUrl: (data as any).proof_image_url ?? "",
         receiptPrinted: (data as any).receipt_printed ?? false,
@@ -295,10 +317,12 @@ export function usePayments() {
     if (updates.studentId !== undefined) mapped.student_id = updates.studentId;
     if (updates.feeType !== undefined) mapped.fee_type = updates.feeType;
     if (updates.amountPaid !== undefined) mapped.amount_paid = updates.amountPaid;
+    if (updates.pendingFeePaid !== undefined) mapped.pending_fee_paid = updates.pendingFeePaid;
     if (updates.date !== undefined) mapped.date = updates.date;
     if (updates.feeMonth !== undefined) mapped.fee_month = updates.feeMonth;
     if (updates.notes !== undefined) mapped.notes = updates.notes;
     if (updates.collectedBy !== undefined) mapped.collected_by = updates.collectedBy;
+    if (updates.collectedByEmail !== undefined) mapped.collected_by_email = updates.collectedByEmail;
     if (updates.paymentMode !== undefined) mapped.payment_mode = updates.paymentMode;
     if (updates.receiptPrinted !== undefined) mapped.receipt_printed = updates.receiptPrinted;
     if (updates.proofImageUrl !== undefined) mapped.proof_image_url = updates.proofImageUrl;
@@ -351,6 +375,8 @@ export function useStudentPaymentSubmissions() {
         data.map((submission) => ({
           id: submission.id,
           feeMonth: submission.fee_month,
+          classGrade: submission.class_grade,
+          classGrades: submission.class_grades ?? (submission.class_grade ? [submission.class_grade] : null),
           amountSubmitted: Number(submission.amount_submitted),
           totalCollectedAtSubmission: Number(submission.total_collected_at_submission),
           previouslySubmittedAmount: Number(submission.previously_submitted_amount),
@@ -359,6 +385,7 @@ export function useStudentPaymentSubmissions() {
           paymentMode: submission.payment_mode,
           notes: submission.notes,
           submittedBy: submission.submitted_by,
+          submittedByEmail: submission.submitted_by_email,
           createdAt: submission.created_at,
         }))
       );
@@ -375,6 +402,8 @@ export function useStudentPaymentSubmissions() {
   ) => {
     const { error } = await supabase.from("student_payment_submissions").insert({
       fee_month: submission.feeMonth,
+      class_grade: submission.classGrade,
+      class_grades: submission.classGrades,
       amount_submitted: submission.amountSubmitted,
       total_collected_at_submission: submission.totalCollectedAtSubmission,
       previously_submitted_amount: submission.previouslySubmittedAmount,
@@ -383,6 +412,7 @@ export function useStudentPaymentSubmissions() {
       payment_mode: submission.paymentMode,
       notes: submission.notes,
       submitted_by: submission.submittedBy,
+      submitted_by_email: submission.submittedByEmail ?? null,
     });
     if (!error) {
       await writeAppLog({
@@ -391,8 +421,11 @@ export function useStudentPaymentSubmissions() {
         message: `Created student payment submission for ${submission.feeMonth}`,
         details: {
           feeMonth: submission.feeMonth,
+          classGrade: submission.classGrade,
+          classGrades: submission.classGrades,
           amountSubmitted: submission.amountSubmitted,
           paymentMode: submission.paymentMode,
+          submittedByEmail: submission.submittedByEmail,
         },
       });
       await fetchSubmissions();
@@ -406,6 +439,8 @@ export function useStudentPaymentSubmissions() {
   ) => {
     const updates: Record<string, unknown> = {};
     if (submission.feeMonth !== undefined) updates.fee_month = submission.feeMonth;
+    if (submission.classGrade !== undefined) updates.class_grade = submission.classGrade;
+    if (submission.classGrades !== undefined) updates.class_grades = submission.classGrades;
     if (submission.amountSubmitted !== undefined) updates.amount_submitted = submission.amountSubmitted;
     if (submission.totalCollectedAtSubmission !== undefined) updates.total_collected_at_submission = submission.totalCollectedAtSubmission;
     if (submission.previouslySubmittedAmount !== undefined) updates.previously_submitted_amount = submission.previouslySubmittedAmount;
@@ -414,6 +449,7 @@ export function useStudentPaymentSubmissions() {
     if (submission.paymentMode !== undefined) updates.payment_mode = submission.paymentMode;
     if (submission.notes !== undefined) updates.notes = submission.notes;
     if (submission.submittedBy !== undefined) updates.submitted_by = submission.submittedBy;
+    if (submission.submittedByEmail !== undefined) updates.submitted_by_email = submission.submittedByEmail;
 
     const { error } = await supabase
       .from("student_payment_submissions")
@@ -432,5 +468,22 @@ export function useStudentPaymentSubmissions() {
     return error;
   }, [fetchSubmissions]);
 
-  return { submissions, loading, addSubmission, updateSubmission, fetchSubmissions };
+  const deleteSubmission = useCallback(async (id: string) => {
+    const { error } = await supabase
+      .from("student_payment_submissions")
+      .delete()
+      .eq("id", id);
+    if (!error) {
+      await writeAppLog({
+        action: "payment_submission_deleted",
+        entityType: "student_payment_submission",
+        entityId: id,
+        message: `Deleted student payment submission ${id}`,
+      });
+      await fetchSubmissions();
+    }
+    return error;
+  }, [fetchSubmissions]);
+
+  return { submissions, loading, addSubmission, updateSubmission, deleteSubmission, fetchSubmissions };
 }

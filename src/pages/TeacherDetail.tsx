@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useTeachers, useTeacherSalaries, useTeacherLoans, useTeacherAttendance, useTeacherSalarySettings } from "@/store/useTeacherStore";
+import { useTeacherAdvances } from "@/store/useTeacherAdvances";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,7 @@ import { ArrowLeft, User, Wallet, HandCoins, Clock, Banknote } from "lucide-reac
 import { formatPKR } from "@/lib/currency";
 import { format } from "date-fns";
 import { getEffectiveTeacherMonthlySalary, getTeacherAnnualIncrementCount } from "@/lib/teacherSalary";
+import { getTeacherLoansWithCalculatedBalance } from "@/lib/teacherLoanBalance";
 
 export default function TeacherDetail() {
   const { id } = useParams<{ id: string }>();
@@ -16,12 +18,13 @@ export default function TeacherDetail() {
   const { teachers, loading: teachersLoading } = useTeachers();
   const { salaries, loading: salariesLoading } = useTeacherSalaries();
   const { loans, loading: loansLoading } = useTeacherLoans();
+  const { advances } = useTeacherAdvances();
   const { attendance, loading: attendanceLoading } = useTeacherAttendance();
   const { settings, loading: settingsLoading } = useTeacherSalarySettings();
 
   const teacher = teachers.find((t) => t.id === id);
   const teacherSalaries = salaries.filter((s) => s.teacherId === id);
-  const teacherLoans = loans.filter((l) => l.teacherId === id);
+  const teacherLoans = getTeacherLoansWithCalculatedBalance(loans, salaries, advances, id);
   const teacherAttendance = attendance.filter((a) => a.teacherId === id);
 
   const loading = teachersLoading || salariesLoading || loansLoading || attendanceLoading || settingsLoading;

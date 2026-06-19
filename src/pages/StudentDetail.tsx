@@ -34,8 +34,9 @@ import {
 import { ArrowLeft, User, CreditCard, AlertTriangle, Plus } from "lucide-react";
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
+import { getPaymentTotalAmount, getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 
 export default function StudentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -51,6 +52,7 @@ export default function StudentDetail() {
   const [payForm, setPayForm] = useState({
     feeType: "tuition" as "tuition" | "registration",
     amountPaid: "",
+    pendingFeePaid: "",
     feeMonth: format(new Date(), "yyyy-MM"),
     paymentMode: "cash",
     notes: "",
@@ -60,24 +62,36 @@ export default function StudentDetail() {
     setPayForm({
       feeType: "tuition",
       amountPaid: "",
+      pendingFeePaid: "",
       feeMonth: format(new Date(), "yyyy-MM"),
       paymentMode: "cash",
       notes: "",
     });
 
   const handleRecordPayment = async () => {
-    if (!id || !payForm.amountPaid || parseFloat(payForm.amountPaid) <= 0) return;
+    const monthlyAmount = parseFloat(payForm.amountPaid) || 0;
+    const pendingFeePaid = parseFloat(payForm.pendingFeePaid) || 0;
+    if (!id || monthlyAmount + pendingFeePaid <= 0) return;
+    if (payForm.feeType === "tuition" && suggestedAmount > 0 && monthlyAmount !== suggestedAmount) {
+      toast({ title: "Monthly fee must be paid in full", description: `Required amount: ${formatPKR(suggestedAmount)}` });
+      return;
+    }
+    if (pendingFeePaid > standalonePendingFeeBalance) {
+      toast({ title: "Invalid pending fee payment", description: `Pending fee payment cannot exceed ${formatPKR(standalonePendingFeeBalance)}` });
+      return;
+    }
     await addPayment({
       studentId: id,
       feeType: payForm.feeType,
-      amountPaid: parseFloat(payForm.amountPaid),
+      amountPaid: monthlyAmount,
+      pendingFeePaid,
       date: format(new Date(), "yyyy-MM-dd"),
       feeMonth: payForm.feeMonth,
       notes: payForm.notes,
       collectedBy: user?.id ?? null,
       paymentMode: payForm.paymentMode,
     });
-    toast({ title: "Payment recorded", description: `${formatPKR(parseFloat(payForm.amountPaid))} received.` });
+    toast({ title: "Payment recorded", description: `${formatPKR(monthlyAmount + pendingFeePaid)} received.` });
     resetPayForm();
     setPayDialogOpen(false);
   };
@@ -105,8 +119,7 @@ export default function StudentDetail() {
       ? payForm.feeType === "tuition"
         ? Math.max(
             0,
-            (getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0).find((installment) => installment.month === payForm.feeMonth)?.due ??
-              getStudentMonthlyDue(monthlyFee, student.enrollmentDate, payForm.feeMonth, student.leavingDate)) -
+            getStudentMonthlyDue(monthlyFee, student.enrollmentDate, payForm.feeMonth, student.leavingDate) -
               studentPayments
                 .filter((p) => p.feeType === "tuition" && p.feeMonth === payForm.feeMonth)
                 .reduce((sum, p) => sum + p.amountPaid, 0)
@@ -124,13 +137,12 @@ export default function StudentDetail() {
     setPayForm((current) => ({ ...current, amountPaid: String(suggestedAmount) }));
   }, [payDialogOpen, payForm.feeType, payForm.feeMonth, suggestedAmount]);
 
-  // Calculate pending balances from enrollment through leaving date, or through now.
+  const standalonePendingFeeBalance = getStudentPendingFeeBalance(student, studentPayments);
+
+  // Calculate monthly pending balances from enrollment through leaving date, or through now.
   const pendingMonths: { month: string; due: number; paid: number; balance: number; prorated: boolean }[] = [];
   if (student && monthlyFee > 0) {
-    const openingInstallments = getStudentOpeningDueInstallments(monthlyFee, student.enrollmentDate, student.openingDueAmount ?? 0);
-    const feeStartDate = openingInstallments[0]
-      ? parseISO(`${openingInstallments[0].month}-01`)
-      : getStudentFeeStartDate(student.enrollmentDate);
+    const feeStartDate = getStudentFeeStartDate(student.enrollmentDate);
     if (!feeStartDate) {
       return;
     }
@@ -143,11 +155,10 @@ export default function StudentDetail() {
     });
     for (const m of months) {
       const monthKey = format(m, "yyyy-MM");
-      const openingInstallment = openingInstallments.find((installment) => installment.month === monthKey);
       const paidForMonth = studentPayments
         .filter((p) => p.feeMonth === monthKey && p.feeType === "tuition")
         .reduce((sum, p) => sum + p.amountPaid, 0);
-      const due = openingInstallment?.due ?? getStudentMonthlyDue(monthlyFee, student.enrollmentDate, monthKey, student.leavingDate);
+      const due = getStudentMonthlyDue(monthlyFee, student.enrollmentDate, monthKey, student.leavingDate);
       const balance = due - paidForMonth;
       pendingMonths.push({
         month: monthKey,
@@ -159,11 +170,11 @@ export default function StudentDetail() {
     }
   }
 
-  const totalDue = pendingMonths.reduce((s, m) => s + m.due, 0);
+  const totalDue = pendingMonths.reduce((s, m) => s + m.due, 0) + standalonePendingFeeBalance;
   const totalPaid = studentPayments
-    .filter((p) => p.feeType === "tuition")
-    .reduce((s, p) => s + p.amountPaid, 0);
-  const totalPending = pendingMonths.reduce((s, m) => s + Math.max(0, m.balance), 0);
+    .reduce((s, p) => s + getPaymentTotalAmount(p), 0);
+  const monthlyPending = pendingMonths.reduce((s, m) => s + Math.max(0, m.balance), 0);
+  const totalPending = monthlyPending + standalonePendingFeeBalance;
   const unpaidMonths = pendingMonths.filter((m) => m.balance > 0);
 
   if (!student) {
@@ -218,8 +229,17 @@ export default function StudentDetail() {
                   <Input type="month" value={payForm.feeMonth} onChange={(e) => setPayForm({ ...payForm, feeMonth: e.target.value })} />
                 </div>
                 <div>
-                  <Label>Amount (PKR) *</Label>
-                  <Input type="number" min={0} value={payForm.amountPaid} onChange={(e) => setPayForm({ ...payForm, amountPaid: e.target.value })} placeholder="0" />
+                  <Label>{payForm.feeType === "tuition" ? "Monthly Fee (PKR) *" : "Amount (PKR) *"}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={payForm.amountPaid}
+                    readOnly={payForm.feeType === "tuition"}
+                    disabled={payForm.feeType === "tuition"}
+                    className={payForm.feeType === "tuition" ? "bg-muted" : ""}
+                    onChange={(e) => setPayForm({ ...payForm, amountPaid: e.target.value })}
+                    placeholder="0"
+                  />
                   {student && (payForm.feeType === "tuition" ? monthlyFee > 0 : Boolean(selectedFee)) && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       Suggested {payForm.feeType === "tuition" ? "tuition" : "fee"}: {formatPKR(suggestedAmount)}
@@ -227,6 +247,22 @@ export default function StudentDetail() {
                     </p>
                   )}
                 </div>
+                {payForm.feeType === "tuition" && (
+                  <div>
+                    <Label>Pending Fee Payment (PKR)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={standalonePendingFeeBalance}
+                      value={payForm.pendingFeePaid}
+                      onChange={(e) => setPayForm({ ...payForm, pendingFeePaid: e.target.value })}
+                      placeholder="0"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Standalone pending balance: {formatPKR(standalonePendingFeeBalance)}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <Label>Payment Mode</Label>
                   <Select value={payForm.paymentMode} onValueChange={(v) => setPayForm({ ...payForm, paymentMode: v })}>
@@ -308,7 +344,7 @@ export default function StudentDetail() {
             </p>
             {unpaidMonths.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                {unpaidMonths.length} pending balance row(s)
+                {unpaidMonths.length} monthly pending row(s)
               </p>
             )}
           </CardContent>
@@ -319,7 +355,7 @@ export default function StudentDetail() {
       <Tabs defaultValue="pending">
         <TabsList>
           <TabsTrigger value="pending" className="gap-1">
-            <AlertTriangle className="h-3.5 w-3.5" /> Pending Fees ({unpaidMonths.length})
+            <AlertTriangle className="h-3.5 w-3.5" /> Pending Fees ({unpaidMonths.length + (standalonePendingFeeBalance > 0 ? 1 : 0)})
           </TabsTrigger>
           <TabsTrigger value="payments" className="gap-1">
             <CreditCard className="h-3.5 w-3.5" /> Payment History ({studentPayments.length})
@@ -340,31 +376,48 @@ export default function StudentDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {unpaidMonths.length === 0 ? (
+                  {unpaidMonths.length === 0 && standalonePendingFeeBalance <= 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                         All fees are paid. 🎉
                       </TableCell>
                     </TableRow>
                   ) : (
-                    unpaidMonths.map((m) => (
-                      <TableRow key={m.month}>
-                        <TableCell className="font-medium">{m.month}</TableCell>
-                        <TableCell>
-                          {formatPKR(m.due)}
-                          {m.prorated && <p className="text-xs text-muted-foreground">Prorated</p>}
-                        </TableCell>
-                        <TableCell>{formatPKR(m.paid)}</TableCell>
-                        <TableCell className="font-semibold text-destructive">
-                          {formatPKR(m.balance)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={m.paid === 0 ? "destructive" : "secondary"}>
-                            {m.paid === 0 ? "Unpaid" : "Partial"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <>
+                      {standalonePendingFeeBalance > 0 && (
+                        <TableRow>
+                          <TableCell className="font-medium">Pending Fee</TableCell>
+                          <TableCell>{formatPKR(student.openingDueAmount ?? 0)}</TableCell>
+                          <TableCell>{formatPKR((student.openingDueAmount ?? 0) - standalonePendingFeeBalance)}</TableCell>
+                          <TableCell className="font-semibold text-destructive">
+                            {formatPKR(standalonePendingFeeBalance)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={(student.openingDueAmount ?? 0) === standalonePendingFeeBalance ? "destructive" : "secondary"}>
+                              {(student.openingDueAmount ?? 0) === standalonePendingFeeBalance ? "Unpaid" : "Partial"}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {unpaidMonths.map((m) => (
+                        <TableRow key={m.month}>
+                          <TableCell className="font-medium">{m.month}</TableCell>
+                          <TableCell>
+                            {formatPKR(m.due)}
+                            {m.prorated && <p className="text-xs text-muted-foreground">Prorated</p>}
+                          </TableCell>
+                          <TableCell>{formatPKR(m.paid)}</TableCell>
+                          <TableCell className="font-semibold text-destructive">
+                            {formatPKR(m.balance)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={m.paid === 0 ? "destructive" : "secondary"}>
+                              {m.paid === 0 ? "Unpaid" : "Partial"}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -432,7 +485,14 @@ export default function StudentDetail() {
                             {p.paymentMode.replace("_", " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-medium">{formatPKR(p.amountPaid)}</TableCell>
+                        <TableCell className="font-medium">
+                          {formatPKR(getPaymentTotalAmount(p))}
+                          {(p.pendingFeePaid ?? 0) > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Fee {formatPKR(p.amountPaid)} + Pending {formatPKR(p.pendingFeePaid ?? 0)}
+                            </p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{p.receiptNumber}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{p.notes || "—"}</TableCell>
                       </TableRow>

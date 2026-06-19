@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatPKR } from "@/lib/currency";
 import { getProratedMonthlyAmount } from "@/lib/proration";
 import { getEffectiveTeacherMonthlySalary } from "@/lib/teacherSalary";
-import { Banknote, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Banknote, Pencil, Plus, Printer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function TeacherAdvances() {
@@ -82,6 +82,107 @@ export default function TeacherAdvances() {
   }, [activeTeachers, editTeacherSearch]);
 
   const getTeacherName = (teacherId: string) => teachers.find((teacher) => teacher.id === teacherId)?.name ?? "Unknown";
+
+  const escapeHtml = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const printAdvanceReceipt = (advance: TeacherAdvance) => {
+    const teacher = teachers.find((item) => item.id === advance.teacherId);
+    const receiptWindow = window.open("", "_blank");
+    if (!receiptWindow) {
+      toast.error("Unable to open receipt window");
+      return;
+    }
+
+    const monthlySalary = teacher
+      ? getProratedMonthlyAmount(
+          getEffectiveTeacherMonthlySalary(
+            teacher.monthlySalary,
+            teacher.joiningDate,
+            advance.month,
+            settings.annualIncrementPercentage
+          ),
+          teacher.joiningDate,
+          advance.month
+        )
+      : 0;
+    const receiptNo = `ADV-${advance.id.slice(0, 8).toUpperCase()}`;
+
+    receiptWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Advance Salary Receipt - ${escapeHtml(receiptNo)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; margin: 0; padding: 24px; }
+            .receipt { max-width: 760px; margin: 0 auto; border: 1px solid #d1d5db; padding: 24px; }
+            .header { text-align: center; border-bottom: 2px solid #111827; padding-bottom: 16px; margin-bottom: 20px; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .header h2 { margin: 8px 0 0; font-size: 18px; font-weight: 600; }
+            .meta { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            td { border: 1px solid #d1d5db; padding: 10px; text-align: left; font-size: 14px; }
+            .section-title { margin-top: 18px; font-size: 15px; font-weight: 700; }
+            .amount { font-weight: 700; }
+            .notes { min-height: 48px; white-space: pre-wrap; }
+            .footer { display: flex; justify-content: space-between; margin-top: 44px; font-size: 13px; }
+            .signature { border-top: 1px solid #111827; padding-top: 8px; width: 220px; text-align: center; }
+            @media print { body { padding: 0; } .receipt { border: none; } }
+          </style>
+        </head>
+        <body>
+          <div class="receipt">
+            <div class="header">
+              <h1>Madrasa Darul Quran Education System</h1>
+              <h2>Advance Salary Receipt</h2>
+            </div>
+            <div class="meta">
+              <div><strong>Receipt No:</strong> ${escapeHtml(receiptNo)}</div>
+              <div><strong>Printed:</strong> ${escapeHtml(format(new Date(), "yyyy-MM-dd HH:mm"))}</div>
+            </div>
+            <div class="section-title">Teacher Details</div>
+            <table>
+              <tbody>
+                <tr><td>Teacher Name</td><td>${escapeHtml(teacher?.name ?? "Unknown")}</td></tr>
+                <tr><td>Contact</td><td>${escapeHtml(teacher?.contact ?? "-")}</td></tr>
+                <tr><td>CNIC</td><td>${escapeHtml(teacher?.cnic ?? "-")}</td></tr>
+                <tr><td>Joining Date</td><td>${escapeHtml(teacher?.joiningDate ?? "-")}</td></tr>
+              </tbody>
+            </table>
+            <div class="section-title">Advance Salary Details</div>
+            <table>
+              <tbody>
+                <tr><td>Advance Amount</td><td class="amount">${escapeHtml(formatPKR(advance.amount))}</td></tr>
+                <tr><td>Salary Month</td><td>${escapeHtml(advance.month)}</td></tr>
+                <tr><td>Monthly Salary</td><td>${escapeHtml(formatPKR(monthlySalary))}</td></tr>
+                <tr><td>Date Given</td><td>${escapeHtml(advance.dateGiven)}</td></tr>
+                <tr><td>Payment Mode</td><td>${escapeHtml(advance.paymentMode === "online" ? "Online" : "Cash")}</td></tr>
+              </tbody>
+            </table>
+            <div class="section-title">Notes</div>
+            <table>
+              <tbody><tr><td class="notes">${escapeHtml(advance.notes || "-")}</td></tr></tbody>
+            </table>
+            <div class="footer">
+              <div class="signature">Teacher Signature</div>
+              <div class="signature">Authorized Signature</div>
+            </div>
+          </div>
+          <script>
+            window.onload = function () {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
+  };
 
   const filteredAdvances = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -455,6 +556,9 @@ export default function TeacherAdvances() {
                     {permissions.canEditSalaries && (
                       <TableCell>
                         <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => printAdvanceReceipt(advance)} title="Print Advance Receipt">
+                            <Printer className="h-4 w-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => openEditDialog(advance)} title="Edit Advance">
                             <Pencil className="h-4 w-4" />
                           </Button>

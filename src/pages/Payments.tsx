@@ -45,8 +45,9 @@ import { downloadCSV } from "@/lib/exportCsv";
 import { format } from "date-fns";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
-import { getStudentFeeStartDate, getStudentMonthlyDue, getStudentOpeningDueInstallments, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
+import { getStudentFeeStartDate, getStudentMonthlyDue, isJoiningMonth, isLeavingMonth } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
+import { getPaymentTotalAmount, getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 import { toast } from "sonner";
 import ProofUpload from "@/components/ProofUpload";
 
@@ -61,6 +62,7 @@ export default function Payments() {
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterMode, setFilterMode] = useState("all");
   const [searchReceipt, setSearchReceipt] = useState("");
+  const [searchStudentName, setSearchStudentName] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
 
   const currentMonth = format(new Date(), "yyyy-MM");
@@ -68,6 +70,7 @@ export default function Payments() {
     studentId: "",
     feeType: "tuition" as "tuition" | "registration",
     amountPaid: 0,
+    pendingFeePaid: 0,
     date: format(new Date(), "yyyy-MM-dd"),
     feeMonth: currentMonth,
     paymentMode: "cash",
@@ -76,6 +79,7 @@ export default function Payments() {
   });
 
   const selectedStudent = students.find((s) => s.id === form.studentId);
+  const editingPayment = editingPaymentId ? payments.find((payment) => payment.id === editingPaymentId) : undefined;
   const selectedFee = selectedStudent
     ? fees.find((f) => f.classGrade === selectedStudent.classGrade && f.feeType === form.feeType)
     : undefined;
@@ -83,14 +87,7 @@ export default function Payments() {
   const selectedStudentPendingFees = useMemo(() => {
     if (!selectedStudent || selectedStudentMonthlyFee <= 0) return [];
 
-    const openingInstallments = getStudentOpeningDueInstallments(
-      selectedStudentMonthlyFee,
-      selectedStudent.enrollmentDate,
-      selectedStudent.openingDueAmount ?? 0
-    );
-    const feeStartDate = openingInstallments[0]
-      ? new Date(`${openingInstallments[0].month}-01T00:00:00`)
-      : getStudentFeeStartDate(selectedStudent.enrollmentDate);
+    const feeStartDate = getStudentFeeStartDate(selectedStudent.enrollmentDate);
     if (!feeStartDate) return [];
 
     const monthCursor = new Date(feeStartDate.getFullYear(), feeStartDate.getMonth(), 1);
@@ -107,10 +104,7 @@ export default function Payments() {
 
     while (monthCursor <= feeEndMonth) {
       const month = format(monthCursor, "yyyy-MM");
-      const openingInstallment = openingInstallments.find((installment) => installment.month === month);
-      const expected = openingInstallment
-        ? openingInstallment.due
-        : getStudentMonthlyDue(
+      const expected = getStudentMonthlyDue(
             selectedStudentMonthlyFee,
             selectedStudent.enrollmentDate,
             month,
@@ -128,21 +122,14 @@ export default function Payments() {
     }
 
     return pendingMonths;
-    }, [selectedStudent, selectedStudentMonthlyFee, payments]);
+    }, [selectedStudent, selectedStudentMonthlyFee, payments, currentMonth]);
   const nextPendingFee = selectedStudentPendingFees[0];
   const pendingMonthsCount = selectedStudentPendingFees.length;
-  const fullPaymentRequired = form.feeType === "tuition" && pendingMonthsCount <= 1 && Boolean(nextPendingFee);
-  const selectedMonthOpeningInstallment =
-    selectedStudent && selectedStudentMonthlyFee > 0
-      ? getStudentOpeningDueInstallments(
-          selectedStudentMonthlyFee,
-          selectedStudent.enrollmentDate,
-          selectedStudent.openingDueAmount ?? 0
-        ).find((installment) => installment.month === form.feeMonth)
-      : undefined;
+  const standalonePendingFeeBalance = getStudentPendingFeeBalance(selectedStudent, payments);
+  const availablePendingFeeBalance =
+    standalonePendingFeeBalance + (editingPayment && selectedStudent && editingPayment.studentId === selectedStudent.id ? editingPayment.pendingFeePaid ?? 0 : 0);
   const selectedMonthTuitionDue = selectedStudent
-    ? selectedMonthOpeningInstallment?.due ??
-      getStudentMonthlyDue(
+    ? getStudentMonthlyDue(
         selectedStudentMonthlyFee,
         selectedStudent.enrollmentDate,
         form.feeMonth,
@@ -155,18 +142,20 @@ export default function Payments() {
         .reduce((sum, payment) => sum + payment.amountPaid, 0)
     : 0;
   const selectedMonthTuitionPending = Math.max(0, selectedMonthTuitionDue - selectedMonthTuitionPaid);
+  const availableSelectedMonthTuitionPending =
+    selectedMonthTuitionPending +
+    (editingPayment && selectedStudent && editingPayment.studentId === selectedStudent.id && editingPayment.feeType === "tuition" && editingPayment.feeMonth === form.feeMonth
+      ? editingPayment.amountPaid
+      : 0);
+  const monthlyAmountLocked = form.feeType === "tuition";
   const pendingPaymentMessage =
     form.feeType === "tuition" && selectedStudent
-      ? pendingMonthsCount === 0
-        ? "No pending tuition payment found for this student."
-        : pendingMonthsCount === 1
-          ? "One pending fee balance found - full payment required."
-          : `${pendingMonthsCount} pending fee balances found - partial payment allowed.`
+      ? `Monthly fee must be paid in full. Pending fee balance can be paid partially: ${formatPKR(availablePendingFeeBalance)} remaining.`
       : "";
   const expectedAmount =
     selectedStudent
       ? form.feeType === "tuition"
-        ? nextPendingFee?.pending ?? selectedMonthTuitionPending
+        ? nextPendingFee?.pending ?? availableSelectedMonthTuitionPending
         : selectedFee?.amount ?? 0
       : 0;
   const isProrated =
@@ -179,29 +168,26 @@ export default function Payments() {
     if (editingPaymentId || !form.studentId) return;
 
     if (form.feeType === "tuition") {
-      if (!nextPendingFee) {
-        setForm((current) => ({ ...current, amountPaid: 0, feeMonth: currentMonth }));
-        return;
-      }
-
       setForm((current) => ({
         ...current,
-        feeMonth: nextPendingFee.month,
-        amountPaid: nextPendingFee.pending,
+        feeMonth: nextPendingFee?.month ?? currentMonth,
+        amountPaid: nextPendingFee?.pending ?? availableSelectedMonthTuitionPending,
+        pendingFeePaid: 0,
       }));
       return;
     }
 
     if (expectedAmount > 0) {
-      setForm((current) => ({ ...current, amountPaid: expectedAmount, feeMonth: currentMonth }));
+      setForm((current) => ({ ...current, amountPaid: expectedAmount, pendingFeePaid: 0, feeMonth: currentMonth }));
     }
-  }, [editingPaymentId, form.studentId, form.feeType, nextPendingFee?.month, nextPendingFee?.pending, expectedAmount, currentMonth]);
+  }, [editingPaymentId, form.studentId, form.feeType, nextPendingFee?.month, nextPendingFee?.pending, expectedAmount, currentMonth, availableSelectedMonthTuitionPending]);
 
   const resetForm = () => {
     setForm({
       studentId: "",
       feeType: "tuition",
       amountPaid: 0,
+      pendingFeePaid: 0,
       date: format(new Date(), "yyyy-MM-dd"),
       feeMonth: currentMonth,
       paymentMode: "cash",
@@ -213,7 +199,16 @@ export default function Payments() {
   };
 
   const handleSubmit = async () => {
-    if (!form.studentId || form.amountPaid <= 0) return;
+    const totalPaymentAmount = form.amountPaid + form.pendingFeePaid;
+    if (!form.studentId || totalPaymentAmount <= 0) return;
+    if (form.feeType === "tuition" && availableSelectedMonthTuitionPending > 0 && form.amountPaid !== availableSelectedMonthTuitionPending) {
+      toast.error(`Monthly fee must be paid in full: ${formatPKR(availableSelectedMonthTuitionPending)}`);
+      return;
+    }
+    if (form.pendingFeePaid > availablePendingFeeBalance) {
+      toast.error(`Pending fee payment cannot exceed ${formatPKR(availablePendingFeeBalance)}`);
+      return;
+    }
     if (form.paymentMode === "online" && !form.proofImageUrl) {
       toast.error("Please upload payment proof for online payment");
       return;
@@ -221,12 +216,12 @@ export default function Payments() {
     if (editingPaymentId) {
       await updatePayment(editingPaymentId, {
         ...form,
-        collectedBy: user?.id ?? null,
       });
     } else {
       await addPayment({
         ...form,
         collectedBy: user?.id ?? null,
+        collectedByEmail: user?.email ?? null,
       });
     }
     resetForm();
@@ -241,6 +236,7 @@ export default function Payments() {
       studentId: payment.studentId,
       feeType: payment.feeType,
       amountPaid: payment.amountPaid,
+      pendingFeePaid: payment.pendingFeePaid ?? 0,
       date: payment.date,
       feeMonth: payment.feeMonth,
       paymentMode: payment.paymentMode,
@@ -283,6 +279,7 @@ export default function Payments() {
     const payment = payments.find((p) => p.id === paymentId);
     if (!payment) return;
     const student = getStudent(payment.studentId);
+    const remainingPendingFee = getStudentPendingFeeBalance(student, payments);
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
@@ -310,7 +307,7 @@ export default function Payments() {
         </style></head>
         <body>
           <div class="header">
-            <h1>☪ Islamic Education Center</h1>
+            <h1>☪ Madrasa Darul Quran Education System</h1>
             <p>Fee Payment Slip</p>
             <div class="slip-title">Fee Slip</div>
           </div>
@@ -326,10 +323,12 @@ export default function Payments() {
             <div class="row"><span class="label">Receipt #</span><span class="value">${payment.receiptNumber}</span></div>
             <div class="row"><span class="label">Payment Date</span><span class="value">${payment.date}</span></div>
             <div class="row"><span class="label">Payment Mode</span><span class="value">${formatPaymentMode(payment.paymentMode)}</span></div>
-            <div class="row"><span class="label">Fee Month</span><span class="value">${formatFeeMonth(payment.feeMonth) || "—"}</span></div>
             <div class="row"><span class="label">Fee Type</span><span class="value" style="text-transform:capitalize">${payment.feeType}</span></div>
             ${payment.notes ? `<div class="row"><span class="label">Notes</span><span class="value">${payment.notes}</span></div>` : ""}
-            <div class="row amount-row"><span class="label" style="font-size:16px">Amount Paid</span><span class="value">Rs. ${payment.amountPaid.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Monthly / Fee Amount</span><span class="value">Rs. ${payment.amountPaid.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Pending Fee Paid</span><span class="value">Rs. ${(payment.pendingFeePaid ?? 0).toLocaleString()}</span></div>
+            <div class="row"><span class="label">Remaining Pending Fee</span><span class="value">Rs. ${remainingPendingFee.toLocaleString()}</span></div>
+            <div class="row amount-row"><span class="label" style="font-size:16px">Total Amount Paid</span><span class="value">Rs. ${getPaymentTotalAmount(payment).toLocaleString()}</span></div>
           </div>
           <div class="stamp">
             <span class="stamp-line">Authorized Signature</span>
@@ -351,6 +350,7 @@ export default function Payments() {
 
   const filteredPayments = sortedPayments.filter((p) => {
     if (searchReceipt && !p.receiptNumber.toLowerCase().includes(searchReceipt.toLowerCase())) return false;
+    if (searchStudentName && !getStudentName(p.studentId).toLowerCase().includes(searchStudentName.toLowerCase())) return false;
     if (filterFeeType !== "all" && p.feeType !== filterFeeType) return false;
     if (filterMonth !== "all" && p.feeMonth !== filterMonth) return false;
     if (filterMode !== "all" && p.paymentMode !== filterMode) return false;
@@ -359,7 +359,7 @@ export default function Payments() {
 
   const paymentMonths = [...new Set(payments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
 
-  const totalCollected = filteredPayments.reduce((sum, p) => sum + p.amountPaid, 0);
+  const totalCollected = filteredPayments.reduce((sum, p) => sum + getPaymentTotalAmount(p), 0);
   const totalCount = filteredPayments.length;
 
   return (
@@ -376,7 +376,7 @@ export default function Payments() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const headers = ["S.No", "Date", "Fee Month", "Student", "Fee Type", "Amount", "Receipt #", "Notes"];
+              const headers = ["S.No", "Date", "Fee Month", "Student", "Fee Type", "Monthly/Fee Amount", "Pending Fee Paid", "Total Amount", "Receipt #", "Notes"];
               const rows = sortedPayments.map((p, index) => [
                 String(index + 1),
                 p.date,
@@ -384,6 +384,8 @@ export default function Payments() {
                 getStudentName(p.studentId),
                 p.feeType,
                 String(p.amountPaid),
+                String(p.pendingFeePaid ?? 0),
+                String(getPaymentTotalAmount(p)),
                 p.receiptNumber,
                 p.notes,
               ]);
@@ -400,7 +402,7 @@ export default function Payments() {
               </Button>
             </DialogTrigger>
           )}
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingPaymentId ? "Edit Payment" : "Record Payment"}</DialogTitle>
             </DialogHeader>
@@ -457,14 +459,14 @@ export default function Payments() {
                 </Select>
               </div>
               <div>
-                <Label>Amount (PKR) *</Label>
+                <Label>{form.feeType === "tuition" ? "Monthly Fee (PKR) *" : "Amount (PKR) *"}</Label>
                 <Input
                   type="number"
                   min={0}
                   value={form.amountPaid || ""}
-                  readOnly={fullPaymentRequired}
-                  disabled={fullPaymentRequired}
-                  className={fullPaymentRequired ? "bg-muted" : ""}
+                  readOnly={monthlyAmountLocked}
+                  disabled={monthlyAmountLocked}
+                  className={monthlyAmountLocked ? "bg-muted" : ""}
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -484,6 +486,27 @@ export default function Payments() {
                   </p>
                 )}
               </div>
+              {form.feeType === "tuition" && selectedStudent && (
+                <div>
+                  <Label>Pending Fee Payment (PKR)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={availablePendingFeeBalance}
+                    value={form.pendingFeePaid || ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        pendingFeePaid: Math.max(0, parseFloat(e.target.value) || 0),
+                      })
+                    }
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Remaining standalone pending fee: {formatPKR(availablePendingFeeBalance)}
+                  </p>
+                </div>
+              )}
               <div>
                 <Label>{form.feeType === "tuition" ? "Fee Month (auto-calculated)" : "Fee Month *"}</Label>
                 <Input
@@ -576,6 +599,15 @@ export default function Payments() {
                 className="pl-8 w-[180px]"
               />
             </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search student name"
+                value={searchStudentName}
+                onChange={(e) => setSearchStudentName(e.target.value)}
+                className="pl-8 w-[210px]"
+              />
+            </div>
             <Select value={filterFeeType} onValueChange={setFilterFeeType}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="Fee Type" /></SelectTrigger>
               <SelectContent>
@@ -603,8 +635,8 @@ export default function Payments() {
                 <SelectItem value="cheque">Cheque</SelectItem>
               </SelectContent>
             </Select>
-            {(searchReceipt || filterFeeType !== "all" || filterMonth !== "all" || filterMode !== "all") && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearchReceipt(""); setFilterFeeType("all"); setFilterMonth("all"); setFilterMode("all"); }}>
+            {(searchReceipt || searchStudentName || filterFeeType !== "all" || filterMonth !== "all" || filterMode !== "all") && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearchReceipt(""); setSearchStudentName(""); setFilterFeeType("all"); setFilterMonth("all"); setFilterMode("all"); }}>
                 Clear Filters
               </Button>
             )}
@@ -654,12 +686,19 @@ export default function Payments() {
                         {p.paymentMode.replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatPKR(p.amountPaid)}</TableCell>
+                    <TableCell>
+                      {formatPKR(getPaymentTotalAmount(p))}
+                      {(p.pendingFeePaid ?? 0) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Fee {formatPKR(p.amountPaid)} + Pending {formatPKR(p.pendingFeePaid ?? 0)}
+                        </p>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {p.receiptNumber}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {p.collectedBy ? user?.email ?? "Admin" : "—"}
+                      {p.collectedByEmail || (p.collectedBy === user?.id ? user?.email : null) || (p.collectedBy ? "Unknown user" : "—")}
                     </TableCell>
                     <TableCell className="text-right">
                       {permissions.canManageRoles && (
@@ -696,7 +735,7 @@ export default function Payments() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete Payment</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently delete receipt {p.receiptNumber} for {getStudentName(p.studentId)} ({formatPKR(p.amountPaid)}). This action cannot be undone.
+                                This will permanently delete receipt {p.receiptNumber} for {getStudentName(p.studentId)} ({formatPKR(getPaymentTotalAmount(p))}). This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Printer, Search } from "lucide-react";
 import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
+import { getPaymentTotalAmount, getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 import { supabase } from "@/integrations/supabase/client";
 
 export default function Receipts() {
@@ -44,6 +45,7 @@ export default function Receipts() {
     const payment = payments.find((p) => p.id === paymentId);
     if (!payment) return;
     const student = students.find((s) => s.id === payment.studentId);
+    const remainingPendingFee = getStudentPendingFeeBalance(student, payments);
 
     const isOriginal = !(payment as any).receiptPrinted;
     const copyLabel = isOriginal ? "Original" : "Duplicate";
@@ -75,7 +77,7 @@ export default function Receipts() {
         </style></head>
         <body>
           <div class="header">
-            <h1>☪ Islamic Education Center</h1>
+            <h1>☪ Madrasa Darul Quran Education System</h1>
             <p>Payment Receipt</p>
           </div>
           <div class="copy-label">${copyLabel}</div>
@@ -87,7 +89,10 @@ export default function Receipts() {
             <div class="row"><span class="label">Class</span><span class="value">${student?.classGrade ?? "—"}</span></div>
             <div class="row"><span class="label">Fee Month</span><span class="value">${formatFeeMonth(payment.feeMonth)}</span></div>
             <div class="row"><span class="label">Fee Type</span><span class="value" style="text-transform:capitalize">${payment.feeType}</span></div>
-            <div class="row"><span class="label">Amount Paid</span><span class="value total">Rs. ${payment.amountPaid.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Monthly / Fee Amount</span><span class="value">Rs. ${payment.amountPaid.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Pending Fee Paid</span><span class="value">Rs. ${(payment.pendingFeePaid ?? 0).toLocaleString()}</span></div>
+            <div class="row"><span class="label">Remaining Pending Fee</span><span class="value">Rs. ${remainingPendingFee.toLocaleString()}</span></div>
+            <div class="row"><span class="label">Total Amount Paid</span><span class="value total">Rs. ${getPaymentTotalAmount(payment).toLocaleString()}</span></div>
             ${payment.notes ? `<div class="row"><span class="label">Notes</span><span class="value">${payment.notes}</span></div>` : ""}
           </div>
           <div class="footer">Thank you for your payment. May Allah bless you.</div>
@@ -157,7 +162,14 @@ export default function Receipts() {
                         {p.feeType}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatPKR(p.amountPaid)}</TableCell>
+                    <TableCell>
+                      {formatPKR(getPaymentTotalAmount(p))}
+                      {(p.pendingFeePaid ?? 0) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Fee {formatPKR(p.amountPaid)} + Pending {formatPKR(p.pendingFeePaid ?? 0)}
+                        </p>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button
                         size="icon"
