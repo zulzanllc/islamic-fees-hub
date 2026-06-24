@@ -64,6 +64,7 @@ export default function Payments() {
   const [searchReceipt, setSearchReceipt] = useState("");
   const [searchStudentName, setSearchStudentName] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const canViewAllPaymentRecords = permissions.canManageRoles;
 
   const currentMonth = format(new Date(), "yyyy-MM");
   const [form, setForm] = useState({
@@ -344,7 +345,15 @@ export default function Payments() {
     printWindow.print();
   };
 
-  const sortedPayments = [...payments].sort(
+  const visiblePayments = useMemo(
+    () =>
+      canViewAllPaymentRecords
+        ? payments
+        : payments.filter((payment) => payment.collectedBy === user?.id),
+    [payments, canViewAllPaymentRecords, user?.id]
+  );
+
+  const sortedPayments = [...visiblePayments].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
@@ -357,7 +366,7 @@ export default function Payments() {
     return true;
   });
 
-  const paymentMonths = [...new Set(payments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
+  const paymentMonths = [...new Set(visiblePayments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
 
   const totalCollected = filteredPayments.reduce((sum, p) => sum + getPaymentTotalAmount(p), 0);
   const totalCount = filteredPayments.length;

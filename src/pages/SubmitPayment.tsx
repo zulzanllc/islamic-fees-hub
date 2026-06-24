@@ -25,7 +25,7 @@ import { formatPKR } from "@/lib/currency";
 import { formatFeeMonth } from "@/lib/formatMonth";
 import { getPaymentTotalAmount } from "@/lib/studentPendingFees";
 import { format, subMonths } from "date-fns";
-import { Pencil, Plus, Search, Send, Trash2 } from "lucide-react";
+import { Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { StudentPaymentSubmission } from "@/types";
 
@@ -43,6 +43,7 @@ export default function SubmitPayment() {
     paymentMode: "cash",
     notes: "",
   });
+  const canViewAllPaymentRecords = permissions.canManageRoles;
 
   const monthOptions = useMemo(() => {
     const now = new Date();
@@ -54,47 +55,78 @@ export default function SubmitPayment() {
 
   const getSubmissionClasses = (submission: StudentPaymentSubmission) =>
     submission.classGrades ?? (submission.classGrade ? [submission.classGrade] : []);
+  const getPaymentCollectorEmail = (payment: { collectedBy: string | null; collectedByEmail?: string | null }) =>
+    payment.collectedByEmail ||
+    (payment.collectedBy === user?.id ? user?.email : null) ||
+    "";
+  const getSubmissionCollectorEmail = (submission: StudentPaymentSubmission) =>
+    submission.collectedByEmail ||
+    (submission.collectedBy === user?.id ? user?.email : null) ||
+    (submission.collectedBy ? "Unknown user" : "All collectors");
+
+  const visiblePayments = useMemo(
+    () =>
+      canViewAllPaymentRecords
+        ? payments
+        : payments.filter((payment) => payment.collectedBy === user?.id),
+    [payments, canViewAllPaymentRecords, user?.id]
+  );
+
+  const visibleSubmissions = useMemo(
+    () =>
+      canViewAllPaymentRecords
+        ? submissions
+        : submissions.filter((submission) => submission.submittedBy === user?.id),
+    [submissions, canViewAllPaymentRecords, user?.id]
+  );
+  const collectorQuery = emailFilter.trim().toLowerCase();
+  const collectorOptions = useMemo(() => {
+    const collectors = new Map<string, { id: string | null; email: string }>();
+    visiblePayments
+      .filter((payment) => payment.feeMonth === selectedMonth && payment.paymentMode === "cash")
+      .forEach((payment) => {
+        const email = getPaymentCollectorEmail(payment);
+        if (!email) return;
+        collectors.set(email.toLowerCase(), { id: payment.collectedBy, email });
+      });
+    return Array.from(collectors.values()).sort((a, b) => a.email.localeCompare(b.email));
+  }, [visiblePayments, selectedMonth, user?.email, user?.id]);
+  const selectedCollector =
+    collectorQuery === ""
+      ? null
+      : collectorOptions.find((collector) => collector.email.toLowerCase() === collectorQuery) ?? null;
 
   const totalCollected = useMemo(
     () =>
-      payments
+      visiblePayments
         .filter(
           (payment) =>
             payment.feeMonth === selectedMonth &&
-            payment.paymentMode === "cash"
+            payment.paymentMode === "cash" &&
+            (collectorQuery === "" || getPaymentCollectorEmail(payment).toLowerCase().includes(collectorQuery))
         )
         .reduce((sum, payment) => sum + getPaymentTotalAmount(payment), 0),
-    [payments, selectedMonth]
+    [visiblePayments, selectedMonth, collectorQuery, user?.email, user?.id]
   );
 
   const monthSubmissions = useMemo(
     () =>
-      submissions
+      visibleSubmissions
         .filter(
           (submission) =>
             submission.feeMonth === selectedMonth &&
-            submission.paymentMode === "cash"
+            submission.paymentMode === "cash" &&
+            (collectorQuery === "" || getSubmissionCollectorEmail(submission).toLowerCase().includes(collectorQuery))
         )
         .sort((a, b) => new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()),
-    [submissions, selectedMonth]
+    [visibleSubmissions, selectedMonth, collectorQuery, user?.email, user?.id]
   );
 
   const alreadySubmitted = monthSubmissions.reduce(
     (sum, submission) => sum + submission.amountSubmitted,
     0
   );
-  const filteredHistorySubmissions = useMemo(() => {
-    const query = emailFilter.trim().toLowerCase();
-    if (!query) return monthSubmissions;
-
-    return monthSubmissions.filter((submission) => {
-      const submittedByEmail =
-        submission.submittedByEmail ||
-        (submission.submittedBy === user?.id ? user?.email : null) ||
-        "";
-      return submittedByEmail.toLowerCase().includes(query);
-    });
-  }, [monthSubmissions, emailFilter, user?.email, user?.id]);
+  const filteredHistorySubmissions = monthSubmissions;
   const remainingToSubmit = Math.max(0, totalCollected - alreadySubmitted);
   const editableRemainingToSubmit = editingSubmission
     ? Math.max(0, totalCollected - (alreadySubmitted - editingSubmission.amountSubmitted))
@@ -139,6 +171,10 @@ export default function SubmitPayment() {
       toast.error(`Maximum amount available to submit is ${formatPKR(editableRemainingToSubmit)}`);
       return;
     }
+    if (collectorQuery && !selectedCollector) {
+      toast.error("Select one matching collected-by email before submitting");
+      return;
+    }
 
     const previouslySubmittedAmount = editingSubmission
       ? alreadySubmitted - editingSubmission.amountSubmitted
@@ -156,6 +192,8 @@ export default function SubmitPayment() {
       submissionDate: form.submissionDate,
       paymentMode: "cash",
       notes: form.notes,
+      collectedBy: selectedCollector?.id ?? editingSubmission?.collectedBy ?? null,
+      collectedByEmail: selectedCollector?.email ?? editingSubmission?.collectedByEmail ?? null,
       submittedBy: user?.id ?? null,
       submittedByEmail: user?.email ?? null,
     };
@@ -196,7 +234,7 @@ export default function SubmitPayment() {
         <Dialog open={open} onOpenChange={handleOpenChange}>
           {permissions.canManageRoles && (
             <DialogTrigger asChild>
-              <Button size="sm" disabled={remainingToSubmit <= 0}>
+              <Button size="sm" disabled={remainingToSubmit <= 0 || Boolean(collectorQuery && !selectedCollector)}>
                 <Plus className="h-4 w-4 mr-1" /> Add Submission
               </Button>
             </DialogTrigger>
@@ -275,16 +313,27 @@ export default function SubmitPayment() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label>Email ID</Label>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={emailFilter}
-              onChange={(event) => setEmailFilter(event.target.value)}
-              placeholder="Search email"
-              className="w-[240px] pl-8"
-            />
-          </div>
+          <Label>Collected By</Label>
+          <Select
+            value={emailFilter || "all"}
+            onValueChange={(value) => setEmailFilter(value === "all" ? "" : value)}
+          >
+            <SelectTrigger className="w-[260px]">
+              <SelectValue placeholder="Select collector" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Collectors</SelectItem>
+              {collectorOptions.length === 0 ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">No collectors found.</div>
+              ) : (
+                collectorOptions.map((collector) => (
+                  <SelectItem key={collector.email} value={collector.email}>
+                    {collector.email}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -328,7 +377,7 @@ export default function SubmitPayment() {
                   <TableHead>Submitted</TableHead>
                   <TableHead>Remaining After</TableHead>
                   <TableHead>Mode</TableHead>
-                  <TableHead>Submitted By</TableHead>
+                  <TableHead>Collected By</TableHead>
                   <TableHead>Notes</TableHead>
                   {permissions.canManageRoles && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
@@ -353,7 +402,7 @@ export default function SubmitPayment() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {submission.submittedByEmail || (submission.submittedBy === user?.id ? user?.email : null) || (submission.submittedBy ? "Unknown user" : "-")}
+                      {getSubmissionCollectorEmail(submission)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{submission.notes || "-"}</TableCell>
                     {permissions.canManageRoles && (

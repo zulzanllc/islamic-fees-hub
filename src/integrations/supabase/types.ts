@@ -348,6 +348,8 @@ export type Database = {
           amount_submitted: number
           class_grade: string | null
           class_grades: string[] | null
+          collected_by: string | null
+          collected_by_email: string | null
           created_at: string
           fee_month: string
           id: string
@@ -364,6 +366,8 @@ export type Database = {
           amount_submitted?: number
           class_grade?: string | null
           class_grades?: string[] | null
+          collected_by?: string | null
+          collected_by_email?: string | null
           created_at?: string
           fee_month: string
           id?: string
@@ -380,6 +384,8 @@ export type Database = {
           amount_submitted?: number
           class_grade?: string | null
           class_grades?: string[] | null
+          collected_by?: string | null
+          collected_by_email?: string | null
           created_at?: string
           fee_month?: string
           id?: string

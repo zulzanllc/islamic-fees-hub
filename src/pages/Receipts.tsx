@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useStudents, usePayments } from "@/store/useStore";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +22,10 @@ import { supabase } from "@/integrations/supabase/client";
 export default function Receipts() {
   const { students } = useStudents();
   const { payments } = usePayments();
+  const { user, permissions } = useAuth();
   const receiptRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const canViewAllPaymentRecords = permissions.canManageRoles;
 
   const getStudentName = (id: string) =>
     students.find((s) => s.id === id)?.name ?? "Unknown";
@@ -34,7 +37,15 @@ export default function Receipts() {
       .replace(/_/g, " ")
       .replace(/\b\w/g, (char) => char.toUpperCase());
 
-  const sortedPayments = [...payments]
+  const visiblePayments = useMemo(
+    () =>
+      canViewAllPaymentRecords
+        ? payments
+        : payments.filter((payment) => payment.collectedBy === user?.id),
+    [payments, canViewAllPaymentRecords, user?.id]
+  );
+
+  const sortedPayments = [...visiblePayments]
     .filter((p) =>
       searchQuery === "" ||
       p.receiptNumber.toLowerCase().includes(searchQuery.toLowerCase())

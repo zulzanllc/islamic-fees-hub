@@ -48,6 +48,8 @@ export interface StudentPaymentSubmission {
   submissionDate: string;
   paymentMode: string;
   notes: string;
+  collectedBy: string | null;
+  collectedByEmail?: string | null;
   submittedBy: string | null;
   submittedByEmail?: string | null;
   createdAt: string;

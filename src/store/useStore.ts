@@ -384,6 +384,8 @@ export function useStudentPaymentSubmissions() {
           submissionDate: submission.submission_date,
           paymentMode: submission.payment_mode,
           notes: submission.notes,
+          collectedBy: (submission as any).collected_by ?? null,
+          collectedByEmail: (submission as any).collected_by_email ?? null,
           submittedBy: submission.submitted_by,
           submittedByEmail: submission.submitted_by_email,
           createdAt: submission.created_at,
@@ -411,6 +413,8 @@ export function useStudentPaymentSubmissions() {
       submission_date: submission.submissionDate,
       payment_mode: submission.paymentMode,
       notes: submission.notes,
+      collected_by: submission.collectedBy,
+      collected_by_email: submission.collectedByEmail ?? null,
       submitted_by: submission.submittedBy,
       submitted_by_email: submission.submittedByEmail ?? null,
     });
@@ -425,6 +429,7 @@ export function useStudentPaymentSubmissions() {
           classGrades: submission.classGrades,
           amountSubmitted: submission.amountSubmitted,
           paymentMode: submission.paymentMode,
+          collectedByEmail: submission.collectedByEmail,
           submittedByEmail: submission.submittedByEmail,
         },
       });
@@ -448,6 +453,8 @@ export function useStudentPaymentSubmissions() {
     if (submission.submissionDate !== undefined) updates.submission_date = submission.submissionDate;
     if (submission.paymentMode !== undefined) updates.payment_mode = submission.paymentMode;
     if (submission.notes !== undefined) updates.notes = submission.notes;
+    if (submission.collectedBy !== undefined) updates.collected_by = submission.collectedBy;
+    if (submission.collectedByEmail !== undefined) updates.collected_by_email = submission.collectedByEmail;
     if (submission.submittedBy !== undefined) updates.submitted_by = submission.submittedBy;
     if (submission.submittedByEmail !== undefined) updates.submitted_by_email = submission.submittedByEmail;
 

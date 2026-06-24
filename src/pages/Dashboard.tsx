@@ -16,6 +16,7 @@ import { getStudentMonthlyDue } from "@/lib/proration";
 import { getStudentMonthlyFee } from "@/lib/studentFees";
 import { getPaymentTotalAmount, getStudentPendingFeeBalance } from "@/lib/studentPendingFees";
 import { DashboardDateFilter } from "@/components/DashboardDateFilter";
+import { useAuth } from "@/hooks/useAuth";
 import {
   createDefaultDashboardDateFilter,
   getDashboardDateRange,
@@ -33,7 +34,9 @@ export default function Dashboard() {
   const { students } = useStudents();
   const { payments } = usePayments();
   const { fees } = useFeeStructures();
+  const { user, permissions } = useAuth();
   const [dateFilter, setDateFilter] = useState(createDefaultDashboardDateFilter);
+  const canViewAllPaymentRecords = permissions.canManageRoles;
 
   const range = useMemo(() => getDashboardDateRange(dateFilter), [dateFilter]);
   const rangeMonths = useMemo(() => getMonthKeysInRange(range), [range]);
@@ -43,9 +46,17 @@ export default function Dashboard() {
     [students, range]
   );
 
+  const visiblePayments = useMemo(
+    () =>
+      canViewAllPaymentRecords
+        ? payments
+        : payments.filter((payment) => payment.collectedBy === user?.id),
+    [payments, canViewAllPaymentRecords, user?.id]
+  );
+
   const paymentsInRange = useMemo(
-    () => payments.filter((payment) => isDateInDashboardRange(payment.date, range)),
-    [payments, range]
+    () => visiblePayments.filter((payment) => isDateInDashboardRange(payment.date, range)),
+    [visiblePayments, range]
   );
 
   const tuitionPaymentsForRangeMonths = useMemo(
@@ -102,12 +113,12 @@ export default function Dashboard() {
 
   const chartData = useMemo(() => {
     return getRangeChartMonths(range).map((month) => {
-      const revenue = payments
+      const revenue = visiblePayments
         .filter((p) => p.date.startsWith(month.value))
         .reduce((s, p) => s + getPaymentTotalAmount(p), 0);
       return { month: month.label, revenue };
     });
-  }, [payments, range]);
+  }, [visiblePayments, range]);
 
   const getStudentName = (id: string) => students.find((s) => s.id === id)?.name ?? "Unknown";
 

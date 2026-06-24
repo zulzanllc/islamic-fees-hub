@@ -45,6 +45,7 @@ export default function StudentDetail() {
   const { payments, addPayment } = usePayments();
   const { fees } = useFeeStructures();
   const { user, permissions } = useAuth();
+  const canViewAllPaymentRecords = permissions.canManageRoles;
 
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [filterFeeType, setFilterFeeType] = useState<string>("all");
@@ -100,14 +101,17 @@ export default function StudentDetail() {
   const studentPayments = payments
     .filter((p) => p.studentId === id)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const visibleStudentPayments = canViewAllPaymentRecords
+    ? studentPayments
+    : studentPayments.filter((payment) => payment.collectedBy === user?.id);
 
-  const filteredPayments = studentPayments.filter((p) => {
+  const filteredPayments = visibleStudentPayments.filter((p) => {
     if (filterFeeType !== "all" && p.feeType !== filterFeeType) return false;
     if (filterMonth !== "all" && p.feeMonth !== filterMonth) return false;
     return true;
   });
 
-  const paymentMonths = [...new Set(studentPayments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
+  const paymentMonths = [...new Set(visibleStudentPayments.map((p) => p.feeMonth).filter(Boolean))].sort().reverse();
 
   const monthlyFee = getStudentMonthlyFee(student, fees);
   const registrationFee = fees.find(
@@ -358,7 +362,7 @@ export default function StudentDetail() {
             <AlertTriangle className="h-3.5 w-3.5" /> Pending Fees ({unpaidMonths.length + (standalonePendingFeeBalance > 0 ? 1 : 0)})
           </TabsTrigger>
           <TabsTrigger value="payments" className="gap-1">
-            <CreditCard className="h-3.5 w-3.5" /> Payment History ({studentPayments.length})
+            <CreditCard className="h-3.5 w-3.5" /> Payment History ({visibleStudentPayments.length})
           </TabsTrigger>
         </TabsList>
 
